@@ -531,11 +531,12 @@
       v.innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Range</div><div class="sub" id="range-sub"></div></div></div>
         <div class="seg" id="range-seg"></div>
         <div class="seg" id="range-area" style="margin-top:8px"></div>
-        <div class="mapbox" style="height:40vh;min-height:240px;margin-top:10px"><div id="map-range" class="map"></div></div>
+        <div id="range-start"></div>
+        <div class="mapbox" style="height:40vh;min-height:240px;margin-top:8px"><div id="map-range" class="map"></div></div>
         <div class="note" id="range-status"></div>
         <div id="range-route"></div>
         <div id="range-dyn"></div>`;
-      getMap('range').on('click', rangeTap); rangeBuilt = true;
+      getMap('range').on('click', rangeTap).on('contextmenu', (ev) => setRangeStart(ev.latlng.lat, ev.latlng.lng)); rangeBuilt = true;
     }
     if (!rangeEng) rangeEng = S().active ? S().active.mode : 'both';
     renderRange();
@@ -558,10 +559,15 @@
       <div class="card dark"><div class="cardhead"><div><div class="sub">${rangeMode === 'round' ? 'Turn back before' : 'Reach'}</div><div class="num" style="font-size:30px">${fi(nmv(r))} NM</div><div class="sub">${f(r.lpnm)} L/NM at ${f(kn)} kn</div></div><div style="text-align:right;max-width:170px" class="sub">${rangeEng === 'both' ? 'Limited by ' + esc(Core.tank(r.limit).name) + ' tank' + (isFinite(r.otherNm) ? ` (other lasts ${fi(rangeMode === 'round' ? r.otherNm / 2 : r.otherNm)} NM)` : '') : 'Only the ' + esc(Core.tank(rangeEng).name) + ' tank is used'}<br>Dashed: ${fi(nmv(r2))} NM at ${f(alt)} kn</div></div></div>`}
       <div class="note">Usable fuel excludes what lies below the suction pipe and your ${s.settings.reservePct}% reserve. Open water avoids land and water shallower than the ${f(s.settings.draftM)} m draft limit (100 m grid); Fairways follows marked fairway lines. Planning aid only — wind and sea add to consumption.</div>`;
     const m = maps.range; m._over.clearLayers(); clearRoute();
-    const c = lv.fix ? [lv.fix.lat, lv.fix.lon] : [m.getCenter().lat, m.getCenter().lng];
-    rangeCtx = { r, r2, kn, alt, c, nmv };
+    const man = s.settings.rangeStart;
+    const c = man ? [man.lat, man.lon] : lv.fix ? [lv.fix.lat, lv.fix.lon] : null;
+    $('#range-start').innerHTML = `<div class="chips" style="padding-top:8px;align-items:center"><span class="sub">Start:</span>
+      <button class="chip ${man ? '' : 'on'}" data-act="range-start-gps">${lv.fix ? 'Boat (GPS)' : 'GPS – no position'}</button>
+      ${man ? '<button class="chip on" data-act="range-start-gps">Chosen point ✕</button>' : '<span class="sub">or long-press the map</span>'}</div>`;
+    rangeCtx = { r, r2, kn, alt, c, nmv, err: null };
     if (!r) return;
-    L.marker(c, { icon: boatIcon(lv.fix ? lv.fix.heading || 0 : 0), interactive: false, zIndexOffset: 1000 }).addTo(m._over);
+    if (!c) { rangeCtx.err = 'nostart'; setRangeStatus('No GPS position. Long-press the map (or tap it and choose "Start from here") to set a start point.'); return; }
+    L.marker(c, { icon: man ? startIcon() : boatIcon(lv.fix ? lv.fix.heading || 0 : 0), interactive: false, zIndexOffset: 1000 }).addTo(m._over);
     m.invalidateSize(); m.fitBounds(L.latLng(c).toBounds(Math.max(nmv(r), nmv(r2) || 0) * 1852 * 2.1));
     const area = s.settings.rangeArea;
     const circles = (why) => {
@@ -575,8 +581,8 @@
     Sea.compute(area, c[0], c[1], nmv(r) * 1852, (r2 ? nmv(r2) : 0) * 1852, s.settings.draftM).then((res) => {
       if (token !== rangeToken) return;
       if (res.error) {
-        const why = { nodata: 'No sea data downloaded yet (More → Sea data).', outside: 'The boat is outside the sea-data area.', land: 'No navigable water found at the boat position for the draft limit.', 'no fairway data': 'The sea data has no fairways.' }[res.error] || res.error;
-        return circles(why);
+        rangeCtx.err = res.error;
+        return circles(whyText(res.error));
       }
       if (res.mode === 'water' && res.img) {
         const cv = document.createElement('canvas'); cv.width = res.img.w; cv.height = res.img.h;
@@ -594,22 +600,35 @@
         ` · draft limit ${f(s.settings.draftM)} m · ${(res.ms / 1000).toFixed(1)} s. Tap the map for a route.`);
     }).catch((e) => { if (token === rangeToken) circles('Calculation failed (' + e.message + ').'); });
   }
-  let rangeToken = 0, rangeCtx = null, rangeRenderer = null, routeLayer = null;
+  let rangeToken = 0, rangeCtx = null, rangeRenderer = null, routeLayer = null, lastTap = null;
+  const whyText = (e) => ({ nodata: 'No sea data downloaded yet (More → Sea data).', outside: 'The start point is outside the sea-data area.', land: 'The start point is on land or too far from water deeper than the draft limit — long-press the map at your harbour to choose a start point.', 'no fairway data': 'The sea data has no fairways.', nostart: 'No start point yet.' }[e] || e);
+  const startIcon = () => L.divIcon({ className: 'boat-icon', iconSize: [22, 22], iconAnchor: [11, 11], html: '<svg width="22" height="22" viewBox="-11 -11 22 22"><circle r="8" fill="#B8470F" stroke="#fff" stroke-width="3"/><circle r="2.5" fill="#fff"/></svg>' });
+  function setRangeStart(lat, lon) { S().settings.rangeStart = { lat: +lat.toFixed(5), lon: +lon.toFixed(5) }; Core.save(); toast('Start point set'); renderRange(); }
+  const startBtn = '<button class="btn small" data-act="range-start-here">Start from here</button>';
   function setRangeStatus(t) { const el = $('#range-status'); if (el) el.textContent = t; }
   function clearRoute() { if (routeLayer && maps.range) maps.range.removeLayer(routeLayer); routeLayer = null; const el = $('#range-route'); if (el) el.innerHTML = ''; }
   async function rangeTap(ev) {
     const s = S(), area = s.settings.rangeArea;
-    if (area === 'circle' || !rangeCtx || !rangeCtx.r || !Sea.meta) return;
+    lastTap = ev.latlng;
     clearRoute();
+    const box = (msg) => { $('#range-route').innerHTML = `<div class="card"><div class="sub">${msg}</div>${startBtn}</div>`; };
+    if (!rangeCtx || !rangeCtx.r) return box('Dip both tanks first to calculate a range.');
+    if (area === 'circle') return box('Circle mode shows straight-line range only. Choose Open water or Fairways for routes.');
+    if (rangeCtx.err) return box(whyText(rangeCtx.err));
+    if (!Sea.meta) return box(whyText('nodata'));
     try {
       const res = await Sea.route(ev.latlng.lat, ev.latlng.lng, area);
-      if (!res || !res.pts || res.pts.length < 2) { $('#range-route').innerHTML = '<div class="card"><div class="sub">No route to that point within the calculated range.</div></div>'; return; }
+      if (!res || !res.pts || res.pts.length < 2) {
+        return box(area === 'water'
+          ? 'No route there: the point is beyond the fuel range shown, or on land more than about 1 km from reachable water.'
+          : 'No route there: tap within about 3 km of a fairway drawn on the map (black or blue).');
+      }
       routeLayer = L.polyline(res.pts, { color: '#B8470F', weight: 4, dashArray: '8 6' }).addTo(maps.range);
       const nm = res.m / 1852, { r, kn, nmv } = rangeCtx;
       const fuel = nm * r.lpnm, okOne = nm <= r.oneWay, okRound = nm <= r.round;
       $('#range-route').innerHTML = `<div class="card"><div class="cardhead"><div><div class="sub">Route ${area === 'water' ? 'over open water' : 'along fairways'}</div><div class="num" style="font-size:24px">${f(nm)} NM</div></div>
         <div style="text-align:right"><div class="sub">Fuel at ${f(kn)} kn</div><div class="num" style="font-size:20px">${fi(fuel)} L one way · ${fi(2 * fuel)} L back</div></div></div>
-        <div class="sub" style="color:${okRound ? '#1F6E5A' : okOne ? '#B8470F' : '#A63A2A'};font-weight:600">${okRound ? 'Enough fuel there and back, with reserve.' : okOne ? 'Enough one way only — refuel there.' : 'Not enough fuel to get there with the reserve kept.'}</div></div>`;
+        <div class="sub" style="color:${okRound ? '#1F6E5A' : okOne ? '#B8470F' : '#A63A2A'};font-weight:600">${okRound ? 'Enough fuel there and back, with reserve.' : okOne ? 'Enough one way only — refuel there.' : 'Not enough fuel to get there with the reserve kept.'}</div>${startBtn}</div>`;
     } catch (e) { toast('Route failed: ' + e.message); }
   }
 
@@ -648,7 +667,7 @@
         <div class="sub">All data lives on this phone only. Export a backup now and then (also before reinstalling).</div>
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
-      <div class="note">Version 3 · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 3.1 · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -822,6 +841,8 @@
     'range-mode': (el) => { rangeMode = el.dataset.m; renderRange(); },
     'range-speed': (el) => { rangeSpeed = el.dataset.s; renderRange(); },
     'range-eng': (el) => { rangeEng = el.dataset.m; renderRange(); },
+    'range-start-here': () => { if (lastTap) setRangeStart(lastTap.lat, lastTap.lng); },
+    'range-start-gps': () => { S().settings.rangeStart = null; Core.save(); toast('Start from the boat GPS position'); renderRange(); },
     'range-area': (el) => { S().settings.rangeArea = el.dataset.a; Core.save(); renderRange(); },
     'sea-download': async () => {
       const out = $('#sea-out'), btn = $('[data-act=sea-download]'); btn.disabled = true;
