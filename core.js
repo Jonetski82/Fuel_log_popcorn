@@ -72,7 +72,7 @@ const Core = (() => {
         reservePct: 15, minCruiseKn: 6, effMarginPct: 10,
         base: 'traficom', seamarks: true,
         traficomLayer: 'Traficom:Merikarttasarjat public', traficomMatrix: 'WGS84_Pseudo-Mercator:', traficomFormat: 'image/png', traficomCustom: '',
-        nlsKey: '', price: '', rpmStep: 50, draftM: 2.0, rangeArea: 'water', seaUrl: 'sea/'
+        nlsKey: '', price: '', rpmStep: 50, draftM: 2.0, rangeArea: 'water', seaUrl: 'sea/', lastLoad: 'normal', rulerUnit: 'cm', planArriveL: 50, planExtraL: 20
       },
       curve: { unit: 'mm', base: samplePoly(395, 600), sample: true, active: zeroCorr(), history: [], pending: null },
       tanks: [
@@ -104,7 +104,8 @@ const Core = (() => {
     }
     s.settings = Object.assign(d.settings, s.settings || {});
     ['curve', 'hull'].forEach((k) => { if (!s[k]) s[k] = d[k]; });
-    s.anchors = s.anchors || []; s.events = s.events || []; s.trips = s.trips || [];
+    s.anchors = s.anchors || []; s.events = s.events || []; s.trips = s.trips || []; s.accuracy = s.accuracy || [];
+    s.userStations = s.userStations || []; s.stationPrices = s.stationPrices || {};
     return s;
   }
 
@@ -285,20 +286,31 @@ const Core = (() => {
         const a = ev[i - 1], b = ev[i];
         const trips = S.trips.filter((tr) => tr.end > a.t && tr.end <= b.t);
         if (!trips.length) continue;
-        const both = zeros(), solo = zeros();
-        trips.forEach((tr) => { const bb = tripBands(tr); bb.both.forEach((h, k) => { both[k] += h; }); bb[e].forEach((h, k) => { solo[k] += h; }); });
-        out.push({ tank: e, t0: a.t, t1: b.t, used: levelAfter(a) - litres(e, b.mm), rough: !!(a.rough || b.rough), trips: trips.map((t) => t.id), both, solo, dist: trips.reduce((s, t) => s + t.distNm, 0) });
+        const parts = trips.map((tr) => { const bb = tripBands(tr); return { tr, both: bb.both, solo: bb[e] }; });
+        out.push({ tank: e, t0: a.t, t1: b.t, used: levelAfter(a) - litres(e, b.mm), rough: !!(a.rough || b.rough), trips: trips.map((t) => t.id), parts, dist: trips.reduce((s, t) => s + t.distNm, 0) });
       }
     });
     return out;
   }
 
-  function refit() {
-    const ints = intervals();
+  // ---------- conditions: wind, waves (from wind strength) and load ----------
+  const ZERO_COND = { a: 0, c: 0, bL: 0, bF: 0 };
+  function condFeat(tr) {
+    const w = tr.wind && tr.wind.status === 'ok' ? tr.wind : null;
+    return { H: w ? w.head : 0, W: w ? Math.max(0, w.ws - 4) : 0, L: tr.load === 'light' ? 1 : 0, F: tr.load === 'full' ? 1 : 0 };
+  }
+  function condFactor(tr, cond) {
+    const k = cond || (S.fit && S.fit.cond) || ZERO_COND, q = condFeat(tr);
+    return Math.max(0.5, 1 + k.a * q.H + k.c * q.W + k.bL * q.L + k.bF * q.F);
+  }
+  function loadFactor(load) { const k = (S.fit && S.fit.cond) || ZERO_COND; return Math.max(0.5, 1 + (load === 'light' ? k.bL : load === 'full' ? k.bF : 0)); }
+  function baseFuel(tr, e, x) { const bb = tripBands(tr); let L = 0; for (let b = 0; b < NB; b++) L += bb.both[b] * x.both[b] + bb[e][b] * x.solo[b]; return L; }
+
+  function solveCurves(ints, cond) {
     const H = Array.from({ length: NX }, () => new Array(NX).fill(0)), g = new Array(NX).fill(0);
     ints.forEach((iv) => {
       const a = new Array(NX).fill(0);
-      for (let b = 0; b < NB; b++) { a[IDX(iv.tank, 'both', b)] = iv.both[b]; a[IDX(iv.tank, 'solo', b)] = iv.solo[b]; }
+      iv.parts.forEach((p) => { const f = condFactor(p.tr, cond); for (let b = 0; b < NB; b++) { a[IDX(iv.tank, 'both', b)] += f * p.both[b]; a[IDX(iv.tank, 'solo', b)] += f * p.solo[b]; } });
       const sig = iv.rough ? 12 : 4, w = 1 / (sig * sig);
       const nz = []; for (let i = 0; i < NX; i++) if (a[i]) nz.push(i);
       nz.forEach((i) => { g[i] += w * a[i] * iv.used; nz.forEach((j) => { H[i][j] += w * a[i] * a[j]; }); });
@@ -323,12 +335,34 @@ const Core = (() => {
     const r = solve(H, g);
     const x = r.x.map((v) => Math.max(0.1, v));
     const pick = (e, m) => Array.from({ length: NB }, (_, b) => x[IDX(e, m, b)]);
+    return { x: { port: { both: pick('port', 'both'), solo: pick('port', 'solo') }, stbd: { both: pick('stbd', 'both'), solo: pick('stbd', 'solo') } }, inv: r.inv };
+  }
+  function solveCond(ints, x) {
+    // used - sum(base) = sum(base * (a*H + c*W + bL*L + bF*F)), with priors around 0
+    const sig = [0.03, 0.03, 0.15, 0.15], H = [0, 1, 2, 3].map((i) => [0, 1, 2, 3].map((j) => (i === j ? 1 / (sig[i] * sig[i]) : 0))), g = [0, 0, 0, 0];
+    let nWind = 0; const nLoad = { light: 0, full: 0 };
+    ints.forEach((iv) => {
+      let base = 0; const a = [0, 0, 0, 0];
+      iv.parts.forEach((p) => { const b0 = baseFuel(p.tr, iv.tank, x[iv.tank]), q = condFeat(p.tr); base += b0; a[0] += b0 * q.H; a[1] += b0 * q.W; a[2] += b0 * q.L; a[3] += b0 * q.F; });
+      if (iv.parts.some((p) => p.tr.wind && p.tr.wind.status === 'ok')) nWind++;
+      if (iv.parts.some((p) => p.tr.load === 'light')) nLoad.light++;
+      if (iv.parts.some((p) => p.tr.load === 'full')) nLoad.full++;
+      const y = iv.used - base, s2 = iv.rough ? 144 : 16;
+      for (let i = 0; i < 4; i++) { g[i] += a[i] * y / s2; for (let j = 0; j < 4; j++) H[i][j] += a[i] * a[j] / s2; }
+    });
+    const r = solve(H, g), lim = [[-0.05, 0.08], [-0.02, 0.08], [-0.3, 0.2], [-0.1, 0.4]];
+    const v = r.x.map((z, i) => clamp(z, lim[i][0], lim[i][1]));
+    return { cond: { a: v[0], c: v[1], bL: v[2], bF: v[3] }, sd: r.inv.map((row, i) => Math.sqrt(Math.max(0, row[i]))), nWind, nLoad };
+  }
+  function refit() {
+    const ints = intervals();
+    let cond = { ...ZERO_COND }, cur = solveCurves(ints, cond), cs = { sd: [0.03, 0.03, 0.15, 0.15], nWind: 0, nLoad: { light: 0, full: 0 } };
+    if (ints.length) {
+      for (let it = 0; it < 4; it++) { cs = solveCond(ints, cur.x); cond = cs.cond; cur = solveCurves(ints, cond); }
+    }
     const loggedH = emptyBands();
     S.trips.forEach((tr) => { const bb = tripBands(tr); MODES.forEach((m) => bb[m].forEach((h, b) => { loggedH[m][b] += h; })); });
-    S.fit = {
-      x: { port: { both: pick('port', 'both'), solo: pick('port', 'solo') }, stbd: { both: pick('stbd', 'both'), solo: pick('stbd', 'solo') } },
-      inv: r.inv, loggedH, nIntervals: ints.length, nTrips: S.trips.length, updated: Date.now()
-    };
+    S.fit = { x: cur.x, inv: cur.inv, cond, condSd: cs.sd, condN: { wind: cs.nWind, light: cs.nLoad.light, full: cs.nLoad.full }, loggedH, nIntervals: ints.length, nTrips: S.trips.length, updated: Date.now() };
     return S.fit;
   }
   const mids = Array.from({ length: NB - 1 }, (_, i) => bandMid(i + 1));
@@ -352,9 +386,7 @@ const Core = (() => {
 
   function tripFuel(tr, e) {
     const x = S.fit ? S.fit.x[e] : { both: Array.from({ length: NB }, (_, b) => priorOf('both', b)), solo: Array.from({ length: NB }, (_, b) => priorOf('solo', b)) };
-    const bb = tripBands(tr);
-    let L = 0; for (let b = 0; b < NB; b++) L += bb.both[b] * x.both[b] + bb[e][b] * x.solo[b];
-    return L;
+    return baseFuel(tr, e, x) * condFactor(tr);
   }
   const tripFuelTotal = (tr) => tripFuel(tr, 'port') + tripFuel(tr, 'stbd');
   function tripMeasured(tr) {
@@ -384,10 +416,11 @@ const Core = (() => {
   function range(mode, kn) {
     if (!(kn >= 1)) return null;
     const eng = mode === 'both' ? ENG : [mode];
-    const r = eng.map((e) => { const u = usable(e); const rate = lphEng(e, mode, kn) / kn; return { e, known: u.known, nm: rate > 0 ? u.usable / rate : Infinity }; });
+    const lf = loadFactor(S.active ? S.active.load : S.settings.lastLoad);
+    const r = eng.map((e) => { const u = usable(e); const rate = lf * lphEng(e, mode, kn) / kn; return { e, known: u.known, nm: rate > 0 ? u.usable / rate : Infinity }; });
     if (r.some((x) => !x.known)) return null;
     r.sort((a, b) => a.nm - b.nm);
-    const lp = lpnm(mode, kn);
+    const lp = lf * lpnm(mode, kn);
     const out = { oneWay: r[0].nm, round: r[0].nm / 2, limit: r[0].e, lpnm: lp };
     if (r.length > 1) out.otherNm = r[1].nm;
     return out;
@@ -466,16 +499,40 @@ const Core = (() => {
   function addCleaning(t) { S.hull.cleanings.push(t || Date.now()); save(); }
 
   // ---------- events ----------
+  function logAccuracy(tid, mm, t, rough) {
+    const ev = eventsFor(tid); if (!ev.length) return;
+    const last = ev[ev.length - 1];
+    const trips = S.trips.filter((tr) => tr.end > last.t && tr.end <= t);
+    if (!trips.length) return;
+    const pred = trips.reduce((s, tr) => s + tripFuel(tr, tid), 0);
+    const meas = levelAfter(last) - litres(tid, mm);
+    if (pred < 3) return;
+    S.accuracy = S.accuracy || [];
+    S.accuracy.push({ t, tank: tid, pred: +pred.toFixed(1), meas: +meas.toFixed(1), trips: trips.length, rough: !!rough });
+  }
   function addDip(tid, mm, rough, t) {
+    logAccuracy(tid, mm, t || Date.now(), rough);
     const e = { id: uid(), t: t || Date.now(), type: 'dip', tank: tid, mm, rough: !!rough };
     S.events.push(e); refit(); save(); return e;
   }
   // rows: [{tank, beforeMm, pumped, afterMm, brim}] ; one pump total for groups is already split by caller
   function addRefuel(rows, price, rough, t) {
     const tt = t || Date.now(), group = rows.length > 1 ? uid() : null;
+    rows.forEach((r) => logAccuracy(r.tank, r.beforeMm, tt, rough));
     rows.forEach((r) => S.events.push({ id: uid(), t: tt, type: 'refuel', tank: r.tank, mm: r.beforeMm, pumped: r.pumped, afterMm: r.afterMm, brim: !!r.brim, rough: !!rough, group, price }));
     refit(); const p = proposeCurve(); save(); return p;
   }
+  function addStationPrice(id, price, src, litres, t) {
+    S.stationPrices = S.stationPrices || {};
+    (S.stationPrices[id] = S.stationPrices[id] || []).push({ t: t || Date.now(), price, src, litres: litres || null });
+    save();
+  }
+  function addUserStation(lat, lon, name) {
+    S.userStations = S.userStations || [];
+    const st = { id: 'user:' + uid(), lat: +lat.toFixed(6), lon: +lon.toFixed(6), name: name || 'My fuel station', operator: '', fuels: [], hours: '', user: true };
+    S.userStations.push(st); save(); return st;
+  }
+  function deleteUserStation(id) { S.userStations = (S.userStations || []).filter((s) => s.id !== id); save(); }
   function deleteEvent(id) { S.events = S.events.filter((e) => e.id !== id); refit(); proposeCurve(); save(); }
   function addAnchor(tid, mm, L) { S.anchors.push({ id: uid(), tank: tid, mm, L, t: Date.now() }); const p = proposeCurve(); save(); return p; }
   function deleteAnchor(id) { S.anchors = S.anchors.filter((a) => a.id !== id); proposeCurve(); save(); }
@@ -496,10 +553,11 @@ const Core = (() => {
   }
   function stopWatch() { if (watchId !== null) navigator.geolocation.clearWatch(watchId); watchId = null; }
 
-  async function startTrip(mode) {
+  async function startTrip(mode, load) {
     if (S.active) return S.active;
     const t = Date.now();
-    S.active = { id: uid(), start: t, end: null, distNm: 0, bandsBy: emptyBands(), last: null, paused: false, gaps: 0, name: '',
+    S.settings.lastLoad = load || S.settings.lastLoad || 'normal';
+    S.active = { id: uid(), start: t, end: null, distNm: 0, bandsBy: emptyBands(), last: null, paused: false, gaps: 0, name: '', load: S.settings.lastLoad,
       mode: mode || 'both', rpm: null, modeLog: [[t, mode || 'both']], rpmLog: [], samples: [], stretch: null };
     buf = [];
     await trackSet(S.active.id, []);
@@ -560,14 +618,18 @@ const Core = (() => {
     if (Date.now() - lastPersist > 20000 || buf.length > 30) persistTrack();
     save(); emit();
   }
-  async function persistTrack() {
-    if (!S.active || !buf.length) return;
+  let persistChain = Promise.resolve();
+  function persistTrack() {   // serialised: concurrent read-modify-write would lose points
+    if (!S.active || !buf.length) return persistChain;
     lastPersist = Date.now();
     const id = S.active.id, add = buf; buf = [];
-    const pts = (await trackGet(id)) || [];
-    await trackSet(id, pts.concat(add));
+    persistChain = persistChain.then(async () => {
+      const pts = (await trackGet(id)) || [];
+      await trackSet(id, pts.concat(add));
+    }).catch(() => {});
+    return persistChain;
   }
-  async function activeTrack() { if (!S.active) return []; const pts = (await trackGet(S.active.id)) || []; return pts.concat(buf); }
+  async function activeTrack() { if (!S.active) return []; await persistChain; const pts = (await trackGet(S.active.id)) || []; return pts.concat(buf); }
   async function stopTrip() {
     if (!S.active) return null;
     closeStretch();
@@ -577,13 +639,15 @@ const Core = (() => {
     const A = S.active;
     const pts = (await trackGet(A.id)) || [];
     let hours = 0; MODES.forEach((m) => A.bandsBy[m].forEach((h) => { hours += h; }));
-    const tr = { id: A.id, start: A.start, end: Date.now(), distNm: A.distNm, bandsBy: A.bandsBy, hours, gaps: A.gaps, name: A.name || autoName(pts), samples: A.samples, modeLog: A.modeLog, rpmLog: A.rpmLog };
+    const tr = { id: A.id, start: A.start, end: Date.now(), distNm: A.distNm, bandsBy: A.bandsBy, hours, gaps: A.gaps, name: A.name || autoName(pts), samples: A.samples, modeLog: A.modeLog, rpmLog: A.rpmLog, load: A.load || 'normal', wind: { status: 'pending', tries: 0 } };
     S.trips.push(tr);
     S.active = null; live.gap = false;
     refit(); await saveNow(); emit();
     return tr;
   }
   function autoName(pts) { if (!pts.length) return 'Trip'; return 'Trip ' + new Date(pts[0][2]).toLocaleDateString('fi-FI'); }
+  function setTripLoad(id, load) { const tr = S.trips.find((t) => t.id === id); if (tr) { tr.load = load; refit(); save(); } }
+  function setTripWind(id, wind) { const tr = S.trips.find((t) => t.id === id); if (tr) { tr.wind = wind; if (wind.status === 'ok') refit(); save(); } }
   async function deleteTrip(id) { S.trips = S.trips.filter((t) => t.id !== id); await trackDel(id); refit(); save(); }
 
   // ---------- backup ----------
@@ -604,6 +668,6 @@ const Core = (() => {
     addDip, addRefuel, deleteEvent, addAnchor, deleteAnchor,
     seasonTable, cleanKnAt, rpmFor, hullStatus, addCleaning,
     startTrip, stopTrip, setPaused, setMode, setRpm, resumeIfActive, activeTrack, trackGet, deleteTrip,
-    exportAll, importAll, kvGet, kvSet, _onFix: (p) => onFix(p)
+    exportAll, importAll, kvGet, kvSet, addStationPrice, addUserStation, deleteUserStation, setTripLoad, setTripWind, condFactor, loadFactor, _onFix: (p) => onFix(p)
   };
 })();

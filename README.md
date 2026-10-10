@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 3)
+# Popcorn Fuel Log (PWA, version 4.3)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -66,3 +66,18 @@ Aineisto (Suomenlahti + Saaristomeri) rakennetaan kerran GitHubissa:
 **Rajoitukset:** 100 m ruudukko – kapeat salmet voivat sulkeutua tai aueta väärin. Väylätila käyttää Väyläviraston navigointilinjoja (mitoitus-/haraussyvyys). Suunnitteluapu, ei navigointiin.
 
 Aineistot: maa © OpenStreetMap contributors (ODbL), väylät © Väylävirasto (CC BY 4.0), syvyys © EMODnet Bathymetry tai © Traficom (CC BY 4.0).
+
+
+## Versio 4 – tuuli, kuorma ja ennustetarkkuus
+
+- **Kuorma:** Start trip kysyy kuorman (Light / Normal / Full). Voit vaihtaa sen ajon aikana Helm-näkymästä tai jälkikäteen matkan tiedoista.
+- **Tuuli:** matkan jälkeen sovellus hakee tuulen Ilmatieteen laitoksen avoimesta datasta (lähimmät rannikkoasemat) ja laskee reitin suuntaisen vasta-/myötätuulen. Ilman verkkoa haku tehdään myöhemmin automaattisesti.
+- **Malli** oppii vastatuulen, tuulen/aallokon ja kuorman vaikutuksen prosentteina (Curve → Conditions effect). Kulutuskäyrä kuvaa tyyntä keliä ja normaalia kuormaa.
+- **Ennustetarkkuus** (Curve → Prediction accuracy): jokainen mittaus verrataan etukäteen laskettuun ennusteeseen.
+- **Range** on omalla välilehdellään.
+
+Tuulidata © Ilmatieteen laitos (CC BY 4.0).
+
+## Versio 4.3 – reittisuunnittelu tankkauksineen
+
+Range-välilehti → **Plan trip with refuelling**. Lähtö = veneen GPS tai pitkällä painalluksella valittu piste. Määränpää ja välipisteet valitaan napauttamalla karttaa tai tankkausasemaa. Sovellus laskee meri- tai väyläetäisyydet lähimpiin (enintään 12) asemiin reitin varrella ja etsii polttoaineen riittävät yhdistelmät (enintään 4 tankkausta). Tuloksena: Halvin / Vähiten pysähdyksiä / Lyhin. Tankkausmäärä = seuraavan osuuden tarve + vara (oletus 20 L) per tankki, ei koskaan alle reservin. Tuntematon hinta = viimeksi maksettu hinta (merkitään "price estimate"). Väylätilassa reitin kumpikin pää saa olla enintään 5 mpk vesitse väylästä.

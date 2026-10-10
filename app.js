@@ -13,7 +13,15 @@
   const dtstr = (t) => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const tstr = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const S = () => Core.state;
+  // ruler unit: values are stored in mm, shown and typed in the chosen unit (default cm)
+  const RUL = () => (S() && S().settings.rulerUnit) || 'cm';
+  const rv = (v) => { const x = Core.num(v); return isFinite(x) ? (RUL() === 'cm' ? x * 10 : x) : NaN; };
+  const rn = (mm) => (isFinite(mm) ? (RUL() === 'cm' ? (Math.round(mm / 5) * 5 / 10).toFixed(1).replace(/\.0$/, '') : String(Math.round(mm))) : '');
+  const rs = (mm) => (isFinite(mm) ? rn(mm) + ' ' + RUL() : '–');
   const MODE_LABEL = { both: 'Both engines', port: 'Port only', stbd: 'Stbd only' };
+  const LOAD_LABEL = { light: 'Light', normal: 'Normal', full: 'Full' };
+  const LOAD_HINT = { light: '2–3 people, little water and gear', normal: '4–5 people or half water tank, usual gear', full: '6 people, luggage, full water tank' };
+
   const IC = {
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg>',
     center: '<svg viewBox="0 0 24 24" fill="none" stroke="#13212F" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>',
@@ -69,7 +77,7 @@
 
   // ---------- navigation ----------
   let current = 'helm', params = {};
-  const NAV_OF = { helm: 'helm', tripend: 'helm', range: 'helm', trips: 'trips', trip: 'trips', curve: 'curve', tanks: 'tanks', refuel: 'tanks', more: 'more' };
+  const NAV_OF = { helm: 'helm', tripend: 'helm', range: 'range', trips: 'trips', trip: 'trips', curve: 'curve', tanks: 'tanks', refuel: 'tanks', more: 'more' };
   function go(v, p = {}) {
     current = v; params = p;
     document.querySelectorAll('.view').forEach((el) => el.classList.toggle('active', el.id === 'v-' + v));
@@ -154,7 +162,7 @@
     $('#helm-dyn').innerHTML = `
       ${lv.error ? `<div class="warn">GPS: ${esc(lv.error)}. Allow location for this app in Android settings.</div>` : ''}
       ${A && lv.gap ? '<div class="warn">GPS paused while the screen was off. The gap was filled with a straight line.</div>' : ''}
-      ${A ? `<div class="btnrow" style="padding-top:10px"><button class="btn small grow" data-act="mode-sheet"><b id="h-mode">${MODE_LABEL[A.mode]}</b></button><button class="btn small grow dark" data-act="rpm-sheet">RPM&nbsp;<b id="h-rpm">${A.rpm || 'set'}</b></button></div>` : ''}
+      ${A ? `<div class="btnrow" style="padding-top:10px"><button class="btn small grow" data-act="mode-sheet"><b id="h-mode">${MODE_LABEL[A.mode]}</b></button><button class="btn small grow dark" data-act="rpm-sheet">RPM&nbsp;<b id="h-rpm">${A.rpm || 'set'}</b></button><button class="btn small" data-act="load-sheet">${LOAD_LABEL[A.load || 'normal']}</button></div>` : ''}
       <div class="grid2">
         <div class="tile"><div class="lbl">Speed (SOG)</div><div class="val"><span class="num big" id="h-sog">${f(kn)}</span><span class="unit">kn</span></div><div class="hint" id="h-sogavg">avg ${f(lv.sogAvg)} kn</div></div>
         <div class="tile dark"><div class="lbl">Fuel per mile</div><div class="val"><span class="num big" id="h-lpnm">${kn >= 1 ? f(Core.lpnm(mode, kn)) : '–'}</span><span class="unit">L/NM</span></div><div class="hint" id="h-lpnm-h"></div></div>
@@ -218,7 +226,7 @@
       <div class="card"><div class="cardhead"><div class="h">Time at speed</div><div class="sub">${(tr.samples || []).length} RPM stretches</div></div>${bandsHtml(bb)}<div class="sub">${modeTimes(bb)}</div></div>
       <div class="card"><div class="cardhead"><div class="h">Dip tanks with ruler</div><div class="sub">est. used P ${fi(Core.tripFuel(tr, 'port'))} · S ${fi(Core.tripFuel(tr, 'stbd'))} L</div></div>
         ${S().tanks.map((t) => `<div class="field"><label for="dip-${t.id}" style="color:${t.color};font-weight:600;flex:0 0 48px">${esc(t.name)}</label>
-          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}" placeholder="mm"><span>mm</span></div>
+          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}" placeholder="${RUL()}"><span>${RUL()}</span></div>
           <div style="flex:1;text-align:right"><div class="num" style="font-size:20px" id="dipL-${t.id}">– L</div><div class="sub" id="dipU-${t.id}"></div></div></div>`).join('')}
         ${roughBox('dip-rough')}
         <div id="dip-sum"></div>
@@ -229,7 +237,7 @@
   function dipPreview() {
     let total = 0, n = 0;
     S().tanks.forEach((t) => {
-      const mm = Core.num($('#dip-' + t.id)?.value);
+      const mm = rv($('#dip-' + t.id)?.value);
       const Lv = Core.litres(t, mm), lv = Core.levelNow(t.id);
       $('#dipL-' + t.id).textContent = isFinite(Lv) ? fi(Lv) + ' L' : '– L';
       let msg = '';
@@ -301,6 +309,9 @@
       <div class="card"><div class="cardhead"><div class="h">Time at speed</div><div class="sub">est. P ${fi(Core.tripFuel(tr, 'port'))} · S ${fi(Core.tripFuel(tr, 'stbd'))} L</div></div>${bandsHtml(bb)}<div class="sub">${modeTimes(bb)}</div></div>
       ${smp.length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Steady RPM stretches</div></div><div class="table">${smp.map((x) => `<div class="tr"><div>${tstr(x.t)}</div><div>${x.rpm} rpm</div><div>${f(x.kn)} kn</div><div>${MODE_LABEL[x.mode].split(' ')[0]}</div></div>`).join('')}</div></div>` : ''}
       ${tr.gaps ? `<div class="warn">${tr.gaps} GPS gap(s) in this trip were filled with straight lines.</div>` : ''}
+      <div class="card"><div class="cardhead"><div class="h">Conditions</div><div class="sub">factor ×${f(Core.condFactor(tr), 2)}</div></div>
+        <div class="sub">${!tr.wind ? 'Wind: not recorded (older trip)' : tr.wind.status === 'ok' ? `Wind ${f(tr.wind.ws)} m/s average · ${tr.wind.head >= 0 ? 'head' : 'tail'} wind ${f(Math.abs(tr.wind.head))} m/s along the route · ${tr.wind.stations} FMI station${tr.wind.stations > 1 ? 's' : ''}` : tr.wind.status === 'pending' ? 'Wind: fetched from FMI when the phone is online' : 'Wind: not available (' + esc(tr.wind.reason || 'no data') + ')'}</div>
+        <div class="seg" style="margin:0">${['light', 'normal', 'full'].map((l) => `<button class="${(tr.load || 'normal') === l ? 'on' : ''}" data-act="trip-load" data-id="${tr.id}" data-l="${l}">${LOAD_LABEL[l]} load</button>`).join('')}</div></div>
       <div class="card"><div class="field"><label for="trip-name">Name</label><div class="inbox wide" style="width:60%"><input id="trip-name" value="${esc(tr.name)}"></div></div></div>
       <div class="btnrow"><button class="btn" data-act="del-trip" data-id="${tr.id}">Delete trip</button><button class="btn primary" data-act="rename-trip" data-id="${tr.id}">Save name</button></div>`;
     const m = maps.trip; m._over.clearLayers();
@@ -370,6 +381,7 @@
         <div class="sub" style="padding-left:30px">${mode === 'both' ? '<b style="color:#13212F">Total</b> · <b style="color:#A63A2A">port</b> · <b style="color:#1F6E5A">stbd</b> · ' : ''}shaded = uncertainty · dot size = hours · grey line = cruising from ${S().settings.minCruiseKn} kn</div>
       </div>
       ${mode === 'both' ? ecoHtml(false) : ''}
+      ${mode === 'both' ? condHtml() + accuracyHtml() : ''}
       <div class="card" style="gap:0"><div class="table">
         <div class="tr head" style="${cols}"><div>Speed</div><div>L/NM</div><div>P L/h</div><div>S L/h</div><div>S/P</div><div>h</div></div>
         ${rows.map((b) => {
@@ -380,6 +392,34 @@
         }).join('')}
       </div></div>
       <div class="note">Each tank feeds its own engine, so every pair of dips measures one engine. Both engines are fitted together; where one has little data it borrows the other's shape. Grey rows have little data. Rough dips count less.</div>`;
+  }
+  function condHtml() {
+    const fit = S().fit, k = fit.cond || {}, sd = fit.condSd || [], n = fit.condN || { wind: 0, light: 0, full: 0 };
+    const pc = (v) => (isFinite(v) ? (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(0) + ' %' : '–');
+    const row = (label, v, e, cnt) => `<div class="tr" style="grid-template-columns:2fr 1fr 1fr"><div>${label}</div><div style="text-align:right"><b>${cnt ? pc(v) : '–'}</b></div><div style="text-align:right" class="sub">${cnt ? '±' + Math.abs(e * 100).toFixed(0) + ' %' : 'no data yet'}</div></div>`;
+    return `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Conditions effect</div><div class="sub">learned from your trips</div></div><div class="table">
+      ${row('Head wind 5 m/s', (k.a || 0) * 5, (sd[0] || 0) * 5, n.wind)}
+      ${row('Wind &amp; waves 10 m/s', (k.c || 0) * 6, (sd[1] || 0) * 6, n.wind)}
+      ${row('Light load', k.bL || 0, sd[2] || 0, n.light)}
+      ${row('Full load', k.bF || 0, sd[3] || 0, n.full)}
+    </div><div class="sub" style="padding-top:6px">vs calm water and normal load · ${n.wind} measured intervals with FMI wind</div></div>`;
+  }
+  function accuracyHtml() {
+    const acc = (S().accuracy || []).slice().sort((a, b) => a.t - b.t);
+    if (!acc.length) return '<div class="card"><div class="cardhead"><div class="h">Prediction accuracy</div></div><div class="sub">Each dip is compared with what the app predicted before it. The first comparison appears after your second dip with trips in between.</div></div>';
+    const err = (a) => ((a.pred - a.meas) / Math.max(1, Math.abs(a.meas))) * 100;
+    const recent = acc.slice(-8).filter((a) => !a.rough).map((a) => Math.abs(err(a)));
+    const typ = recent.length ? Core.median(recent) : NaN;
+    const tMin = acc[0].t, tMax = Math.max(acc[acc.length - 1].t, tMin + 86400000);
+    const yMax = Math.max(10, niceMax(Math.max(...acc.map((a) => Math.abs(err(a)))) * 1.1));
+    const chart = lineChart([
+      { color: '#A63A2A', dots: acc.filter((a) => a.tank === 'port').map((a) => [a.t, err(a), 4]), dotFill: '#A63A2A' },
+      { color: '#1F6E5A', dots: acc.filter((a) => a.tank === 'stbd').map((a) => [a.t, err(a), 4]), dotFill: '#1F6E5A' }],
+      { label: 'Prediction error over time', xMin: tMin, xMax: tMax, yMin: -yMax, yMax, xTicks: [tMin, tMax], yTicks: [-yMax, -yMax / 2, 0, yMax / 2, yMax], xFmt: (v) => dstr(v), yFmt: (v) => fi(v) + '%', xUnit: '' });
+    return `<div class="card" style="padding:12px 6px 8px 2px"><div class="cardhead" style="padding-left:10px"><div><div class="h">Prediction accuracy</div><div class="sub">predicted before each dip vs measured</div></div><div style="text-align:right;padding-right:6px"><div class="num" style="font-size:22px">${isFinite(typ) ? '±' + fi(typ) + ' %' : '–'}</div><div class="sub">typical now</div></div></div>
+      ${chart}<div class="sub" style="padding-left:30px"><b style="color:#A63A2A">port</b> · <b style="color:#1F6E5A">stbd</b> · above 0 = app predicted too much</div>
+      <div class="table" style="padding:6px 6px 0 10px"><div class="tr head" style="grid-template-columns:1fr .7fr 1fr 1fr .8fr"><div>Date</div><div>Tank</div><div>Predicted</div><div>Measured</div><div>Diff</div></div>
+      ${acc.slice(-6).reverse().map((a) => `<div class="tr" style="grid-template-columns:1fr .7fr 1fr 1fr .8fr"><div>${dstr(a.t)}</div><div>${a.tank === 'port' ? 'P' : 'S'}</div><div>${fi(a.pred)} L</div><div>${fi(a.meas)} L</div><div>${pm(err(a))}%</div></div>`).join('')}</div></div>`;
   }
   function renderHull() {
     const s = S(), hs = Core.hullStatus(hullPeriod);
@@ -429,7 +469,7 @@
     const segs = s.events.filter((e) => e.tank === t.id && e.type === 'refuel' && !e.group && isFinite(e.afterMm)).map((e) => { const b = Core.litres(t, e.mm); return [e.mm, b, e.afterMm, b + e.pumped]; });
     series.push({ color: '#13212F', segs });
     series.push({ color: '#13212F', dots: s.anchors.filter((a) => a.tank === t.id).map((a) => [a.mm, a.L, 4.5]), dotFill: '#E9B44C', dotStroke: '#13212F' });
-    return lineChart(series, { label: 'Litres against ruler depth', xMin: 0, xMax: t.maxMm, yMin: 0, yMax, xTicks: [0.25, 0.5, 0.75, 1].map((q) => q * t.maxMm), yTicks: Array.from({ length: yMax / 100 + 1 }, (_, i) => i * 100), xFmt: (v) => fi(v), yFmt: (v) => fi(v), xUnit: 'mm', vlines: [{ x: t.pipeMm || 0, color: '#13212F' }] });
+    return lineChart(series, { label: 'Litres against ruler depth', xMin: 0, xMax: t.maxMm, yMin: 0, yMax, xTicks: [0.25, 0.5, 0.75, 1].map((q) => q * t.maxMm), yTicks: Array.from({ length: yMax / 100 + 1 }, (_, i) => i * 100), xFmt: (v) => rn(v), yFmt: (v) => fi(v), xUnit: RUL(), vlines: [{ x: t.pipeMm || 0, color: '#13212F' }] });
   }
   R.tanks = () => {
     const s = S(), t = Core.tank(tankSel), u = Core.usable(t.id);
@@ -440,9 +480,9 @@
       <div class="top"><div><div class="title">Tanks</div><div class="sub">Ruler depth → litres</div></div><button class="btn small" data-act="edit-tank">Edit tank</button></div>
       <div class="seg">${s.tanks.map((k) => `<button class="${k.id === tankSel ? 'on' : ''}" data-act="tank-sel" data-t="${k.id}">${esc(k.name)}</button>`).join('')}</div>
       <div class="grid3">
-        <div class="tile"><div class="lbl">Now, est.</div><div class="num mid">${fi(u.L)} <span class="unit">L</span></div><div class="hint">${last ? 'dip ' + fi(last.mm) + ' mm' : 'no dip'}</div></div>
+        <div class="tile"><div class="lbl">Now, est.</div><div class="num mid">${fi(u.L)} <span class="unit">L</span></div><div class="hint">${last ? 'dip ' + rs(last.mm) : 'no dip'}</div></div>
         <div class="tile dark"><div class="lbl">Usable</div><div class="num mid">${fi(u.usable)} <span class="unit">L</span></div><div class="hint">after pipe &amp; reserve</div></div>
-        <div class="tile"><div class="lbl">Unusable</div><div class="num mid">${fi(u.dead)} <span class="unit">L</span></div><div class="hint">${byL ? 'set in litres' : 'below ' + fi(t.pipeMm) + ' mm'}</div></div>
+        <div class="tile"><div class="lbl">Unusable</div><div class="num mid">${fi(u.dead)} <span class="unit">L</span></div><div class="hint">${byL ? 'set in litres' : 'below ' + rs(t.pipeMm)}</div></div>
       </div>
       <div class="card" style="gap:6px">${tankBar(t)}<div class="sub">Reserve ${s.settings.reservePct}% of usable capacity = ${fi(u.reserve)} L</div></div>
       <div class="btnrow"><button class="btn dark grow" data-act="dip-sheet">Log dip</button><button class="btn primary" data-act="go" data-v="refuel">Log refuel</button></div>
@@ -454,9 +494,9 @@
         <div class="btnrow" style="padding:6px 10px 0 10px"><button class="btn small grow" data-act="base-sheet">Polynomial</button><button class="btn small grow" data-act="add-anchor">Known point</button></div>
       </div>
       ${s.curve.history.length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Earlier curves</div></div>${s.curve.history.map((h, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;gap:8px"><span class="sub">${dtstr(h.t)} · ${esc(h.note || '')}</span>${h.base ? '' : `<button class="btn small" data-act="restore-curve" data-i="${i}">Restore</button>`}</div>`).join('')}</div>` : ''}
-      ${s.anchors.filter((a) => a.tank === t.id).length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Known points</div></div>${s.anchors.filter((a) => a.tank === t.id).map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px"><span>${fi(a.mm)} mm = ${f(a.L)} L</span><button class="iconbtn" aria-label="Delete point" data-act="del-anchor" data-id="${a.id}">${IC.x}</button></div>`).join('')}</div>` : ''}
+      ${s.anchors.filter((a) => a.tank === t.id).length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Known points</div></div>${s.anchors.filter((a) => a.tank === t.id).map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px"><span>${rs(a.mm)} = ${f(a.L)} L</span><button class="iconbtn" aria-label="Delete point" data-act="del-anchor" data-id="${a.id}">${IC.x}</button></div>`).join('')}</div>` : ''}
       <div class="card" style="gap:0"><div class="cardhead"><div class="h">Readings</div></div>
-        ${ev.length ? ev.map((e) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;font-size:14px;gap:6px"><span>${dtstr(e.t)} · ${e.type === 'refuel' ? 'refuel +' + f(e.pumped) + ' L' + (e.brim ? ' (brim)' : '') : 'dip'}${e.rough ? ' · <i>rough</i>' : ''}</span><span style="white-space:nowrap">${fi(e.mm)} mm = ${fi(Core.litres(t, e.mm))} L <button class="iconbtn" aria-label="Delete reading" data-act="del-event" data-id="${e.id}">${IC.x}</button></span></div>`).join('') : '<div class="sub">No readings yet.</div>'}
+        ${ev.length ? ev.map((e) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;font-size:14px;gap:6px"><span>${dtstr(e.t)} · ${e.type === 'refuel' ? 'refuel +' + f(e.pumped) + ' L' + (e.brim ? ' (brim)' : '') : 'dip'}${e.rough ? ' · <i>rough</i>' : ''}</span><span style="white-space:nowrap">${rs(e.mm)} = ${fi(Core.litres(t, e.mm))} L <button class="iconbtn" aria-label="Delete reading" data-act="del-event" data-id="${e.id}">${IC.x}</button></span></div>`).join('') : '<div class="sub">No readings yet.</div>'}
       </div>
       ${s.curve.sample ? '<div class="warn">The tank polynomial is a sample. Tap Polynomial to enter yours, and Edit tank for capacity and suction-pipe height.</div>' : ''}`;
   };
@@ -482,13 +522,14 @@
       <div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="tanks">${IC.back}</button><div><div class="title">Log refuel</div><div class="sub">${dtstr(Date.now())}</div></div></div>
       <div class="seg"><button class="${refuelSel === 'port' ? 'on' : ''}" data-act="refuel-sel" data-t="port">${esc(s.tanks[0].name)}</button><button class="${refuelSel === 'stbd' ? 'on' : ''}" data-act="refuel-sel" data-t="stbd">${esc(s.tanks[1].name)}</button><button class="${refuelSel === 'both' ? 'on' : ''}" data-act="refuel-sel" data-t="both">Both</button></div>
       <div class="card">
-        ${tanks.map((t) => `<div class="field"><label for="rb-${t.id}">${two ? esc(t.name) + ': ' : ''}Depth before<small id="rbL-${t.id}">dip before filling</small></label><div class="inbox"><input id="rb-${t.id}" inputmode="decimal" data-rf="1"><span>mm</span></div></div>`).join('')}
+        ${tanks.map((t) => `<div class="field"><label for="rb-${t.id}">${two ? esc(t.name) + ': ' : ''}Depth before<small id="rbL-${t.id}">dip before filling</small></label><div class="inbox"><input id="rb-${t.id}" inputmode="decimal" data-rf="1"><span>${RUL()}</span></div></div>`).join('')}
         <div class="field"><label for="rp">Litres from pump<small>${two ? 'one total, split by the dips' : 'from the pump display'}</small></label><div class="inbox"><input id="rp" inputmode="decimal" data-rf="1"><span>L</span></div></div>
-        ${tanks.map((t) => `<div class="field"><label for="ra-${t.id}">${two ? esc(t.name) + ': ' : ''}Depth after<small id="raL-${t.id}">${two ? 'needed to split the total' : 'improves the tank curve'}</small></label><div class="inbox"><input id="ra-${t.id}" inputmode="decimal" data-rf="1"><span>mm</span></div></div>
+        ${tanks.map((t) => `<div class="field"><label for="ra-${t.id}">${two ? esc(t.name) + ': ' : ''}Depth after<small id="raL-${t.id}">${two ? 'needed to split the total' : 'improves the tank curve'}</small></label><div class="inbox"><input id="ra-${t.id}" inputmode="decimal" data-rf="1"><span>${RUL()}</span></div></div>
           <div class="check"><input type="checkbox" id="rbrim-${t.id}" data-rf="1"><label for="rbrim-${t.id}">${two ? esc(t.name) + ' filled' : 'Filled'} to the brim (= ${fi(t.capacity)} L)</label></div>`).join('')}
         ${roughBox('rf-rough')}
       </div>
       <div class="card dark" id="rf-check"><div class="sub">Enter the readings to compare them with the tank curve.</div></div>
+      ${(() => { const fx = Core.live.fix, ns = fx && nearestStation(fx.lat, fx.lon, 1000); return ns ? `<div class="note">At <b>${esc(ns.st.name)}</b> (${fi(ns.m)} m) — the price is saved to this station's history.</div>` : ''; })()}
       <div class="card"><div class="field"><label for="rprice">Price</label><div class="inbox"><input id="rprice" inputmode="decimal" value="${esc(s.settings.price)}" data-rf="1"><span>€/L</span></div></div><div class="sub" id="rtotal"></div></div>
       <div class="btnrow"><button class="btn primary" data-act="save-refuel">Save refuel</button></div>`;
   };
@@ -498,8 +539,8 @@
     const pumped = Core.num($('#rp').value);
     const rows = tanks.map((t) => {
       const brim = $('#rbrim-' + t.id).checked;
-      const b = Core.num($('#rb-' + t.id).value);
-      let a = Core.num($('#ra-' + t.id).value);
+      const b = rv($('#rb-' + t.id).value);
+      let a = rv($('#ra-' + t.id).value);
       if (brim && !isFinite(a)) a = t.maxMm;
       const bL = Core.litres(t, b), aL = brim ? t.capacity : Core.litres(t, a);
       $('#rbL-' + t.id).textContent = isFinite(bL) ? 'curve: ' + fi(bL) + ' L' + (b < t.pipeMm ? ' · below pipe' : '') : 'dip before filling';
@@ -528,12 +569,13 @@
   R.range = () => {
     const v = $('#v-range');
     if (!rangeBuilt) {
-      v.innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Range</div><div class="sub" id="range-sub"></div></div></div>
+      v.innerHTML = `<div class="top"><div><div class="title">Range</div><div class="sub" id="range-sub"></div></div></div>
         <div class="seg" id="range-seg"></div>
         <div class="seg" id="range-area" style="margin-top:8px"></div>
         <div id="range-start"></div>
         <div class="mapbox" style="height:40vh;min-height:240px;margin-top:8px"><div id="map-range" class="map"></div></div>
         <div class="note" id="range-status"></div>
+        <div id="range-plan"></div>
         <div id="range-route"></div>
         <div id="range-dyn"></div>`;
       getMap('range').on('click', rangeTap).on('contextmenu', (ev) => setRangeStart(ev.latlng.lat, ev.latlng.lng)); rangeBuilt = true;
@@ -566,6 +608,7 @@
       ${man ? '<button class="chip on" data-act="range-start-gps">Chosen point ✕</button>' : '<span class="sub">or long-press the map</span>'}</div>`;
     rangeCtx = { r, r2, kn, alt, c, nmv, err: null };
     if (!r) return;
+    drawStations(); renderPlanPanel();
     if (!c) { rangeCtx.err = 'nostart'; setRangeStatus('No GPS position. Long-press the map (or tap it and choose "Start from here") to set a start point.'); return; }
     L.marker(c, { icon: man ? startIcon() : boatIcon(lv.fix ? lv.fix.heading || 0 : 0), interactive: false, zIndexOffset: 1000 }).addTo(m._over);
     m.invalidateSize(); m.fitBounds(L.latLng(c).toBounds(Math.max(nmv(r), nmv(r2) || 0) * 1852 * 2.1));
@@ -601,15 +644,173 @@
     }).catch((e) => { if (token === rangeToken) circles('Calculation failed (' + e.message + ').'); });
   }
   let rangeToken = 0, rangeCtx = null, rangeRenderer = null, routeLayer = null, lastTap = null;
+  // ---- fuel stations (OpenStreetMap + your own) and price history ----
+  const allStations = () => (Sea.stations || []).concat(S().userStations || []);
+  const lastPrice = (id) => { const p = (S().stationPrices || {})[id]; return p && p.length ? p[p.length - 1] : null; };
+  const ageTxt = (t) => { const d = (Date.now() - t) / 86400000; return d < 1 ? 'today' : d < 14 ? Math.round(d) + ' d ago' : d < 60 ? Math.round(d / 7) + ' wk ago' : Math.round(d / 30) + ' mo ago'; };
+  function nearestStation(lat, lon, maxM) {
+    let best = null, bd = Infinity;
+    allStations().forEach((st) => { const d = Core.haversine([lat, lon], [st.lat, st.lon]); if (d < bd) { bd = d; best = st; } });
+    return best && bd <= maxM ? { st: best, m: bd } : null;
+  }
+  const fuelIcon = (known) => L.divIcon({ className: 'boat-icon', iconSize: [26, 26], iconAnchor: [13, 13], html: `<svg width="26" height="26" viewBox="0 0 26 26"><circle cx="13" cy="13" r="12" fill="${known ? '#B8470F' : '#13212F'}" stroke="#fff" stroke-width="2"/><path d="M9 19V8.5c0-.8.6-1.5 1.5-1.5h3c.8 0 1.5.7 1.5 1.5V19M8 19h8M9.5 11h5M15 10.5l2 1.5v4.5a1 1 0 0 0 2 0V12l-2-2" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>` });
+  let stationLayer = null, openStation = null;
+
+  // ---------------- trip planner ----------------
+  const plan = { on: false, dest: null, vias: [], speed: 'eco', customKn: 7, res: null, sel: 'cheapest', busy: false, layer: null, msg: '' };
+  const NMm = 1852;
+  const planKn = () => { const e = Core.economy(), lv = Core.live; if (plan.speed === 'eco') return e ? e.best.kn : 6.5; if (plan.speed === 'now') return lv.sogAvg >= 2 ? lv.sogAvg : 7; return plan.customKn; };
+  const ptName = (p) => p.name || (f(p.lat, 3) + ', ' + f(p.lon, 3));
+  function clearPlanLayer() { if (plan.layer && maps.range) maps.range.removeLayer(plan.layer); plan.layer = null; }
+  function renderPlanPanel() {
+    const box = $('#range-plan'); if (!box) return;
+    if (!plan.on) { box.innerHTML = '<div class="btnrow" style="padding-top:6px"><button class="btn small grow dark" data-act="plan-open">Plan trip with refuelling</button></div>'; return; }
+    const s = S().settings, e = Core.economy(), lv = Core.live;
+    const startTxt = s.rangeStart ? 'chosen point' : (lv.fix ? 'boat (GPS)' : 'not set — long-press the map');
+    box.innerHTML = `<div class="card">
+      <div class="cardhead"><div class="h">Trip plan</div><button class="btn small" data-act="plan-close">Close</button></div>
+      <div class="sub">Start: <b style="color:#13212F">${startTxt}</b></div>
+      <div class="sub">Destination: <b style="color:#13212F">${plan.dest ? esc(ptName(plan.dest)) : 'tap the map or a fuel station'}</b>${plan.dest ? ' <button class="iconbtn" aria-label="Clear destination" data-act="plan-clear-dest">' + IC.x + '</button>' : ''}</div>
+      ${plan.vias.map((v, i) => `<div class="sub">Stop-over ${i + 1}: <b style="color:#13212F">${esc(ptName(v))}</b> <button class="iconbtn" aria-label="Remove stop-over" data-act="plan-del-via" data-i="${i}">${IC.x}</button></div>`).join('')}
+      <div class="seg" style="margin:0">
+        <button class="${plan.speed === 'eco' ? 'on' : ''}" data-act="plan-speed" data-s="eco">Economy ${f(e ? e.best.kn : 6.5)} kn</button>
+        <button class="${plan.speed === 'now' ? 'on' : ''}" data-act="plan-speed" data-s="now">Now ${f(lv.sogAvg >= 2 ? lv.sogAvg : 7)} kn</button>
+        <button class="${plan.speed === 'custom' ? 'on' : ''}" data-act="plan-speed" data-s="custom">Other</button></div>
+      ${plan.speed === 'custom' ? `<div class="field"><label for="plan-kn">Speed</label><div class="inbox"><input id="plan-kn" inputmode="decimal" value="${plan.customKn}" data-act="plan-kn"><span>kn</span></div></div>` : ''}
+      <div class="field"><label for="plan-arrive">Fuel left at destination<small>both tanks, above the reserve</small></label><div class="inbox"><input id="plan-arrive" inputmode="decimal" value="${s.planArriveL ?? 50}" data-act="setnum" data-k="planArriveL"><span>L</span></div></div>
+      <div class="field"><label for="plan-extra">Extra per refuel<small>on top of what the next leg needs</small></label><div class="inbox"><input id="plan-extra" inputmode="decimal" value="${s.planExtraL ?? 20}" data-act="setnum" data-k="planExtraL"><span>L</span></div></div>
+      <div class="sub">Route: ${s.rangeArea === 'fairway' ? 'along fairways' : s.rangeArea === 'water' ? 'over open water' : 'straight lines (Circle mode)'} · ${MODE_LABEL[rangeEng || 'both']} · draft limit ${f(s.draftM)} m</div>
+      <button class="btn primary" data-act="plan-calc" ${plan.dest && !plan.busy ? '' : 'disabled'}>${plan.busy ? 'Calculating…' : 'Calculate plan'}</button>
+      <div class="sub" id="plan-msg">${esc(plan.msg)}</div>
+      <div id="plan-out"></div></div>`;
+    if (plan.res) renderPlanResults();
+  }
+  async function calcPlan() {
+    const s = S().settings, ctxR = rangeCtx;
+    if (!ctxR || !ctxR.c) { plan.msg = 'Set a start point first.'; return renderPlanPanel(); }
+    if (S().tanks.some((t) => !Core.levelNow(t.id).known)) { plan.msg = 'Dip both tanks first.'; return renderPlanPanel(); }
+    plan.busy = true; plan.res = null; plan.msg = 'Preparing…'; clearPlanLayer(); renderPlanPanel();
+    try {
+      const kn = planKn(), mode = rangeEng || 'both', lf = Core.loadFactor(s.lastLoad);
+      const rate = {}; Core.ENG.forEach((e) => { rate[e] = (lf * Core.lphEng(e, mode, kn)) / kn; });
+      const tanks = {}; Core.ENG.forEach((e) => { const u = Core.usable(e), tk = Core.tank(e); tanks[e] = { level: u.L, min: u.dead + u.reserve, cap: tk.capacity }; });
+      const start = { lat: ctxR.c[0], lon: ctxR.c[1], name: 'Start' }, dest = plan.dest;
+      const hv = (a, b) => Core.haversine([a.lat, a.lon], [b.lat, b.lon]);
+      const chain = [start].concat(plan.vias, [dest]);
+      let chainLen = 0; for (let i = 1; i < chain.length; i++) chainLen += hv(chain[i - 1], chain[i]);
+      const cands = allStations().filter((st) => chain.every((c) => hv(c, st) > 300)).map((st) => { let det = Infinity; for (let i = 1; i < chain.length; i++) det = Math.min(det, hv(chain[i - 1], st) + hv(st, chain[i]) - hv(chain[i - 1], chain[i])); return { st, det }; })
+        .filter((x) => x.det <= 0.4 * chainLen + 15000).sort((x, y) => x.det - y.det).slice(0, 12);
+      const defPrice = Core.num(s.price) > 0 ? Core.num(s.price) : 1.95;
+      const pts = chain.concat(cands.map((x) => x.st));
+      const nodes = [{ kind: 'start', name: 'Start' }].concat(plan.vias.map((v) => ({ kind: 'via', name: ptName(v) })), [{ kind: 'end', name: ptName(dest) }],
+        cands.map((x) => { const lp = lastPrice(x.st.id); return { kind: 'station', name: x.st.name, st: x.st, price: lp ? lp.price : defPrice, priceEstimated: !lp }; }));
+      let D, how = 'straight lines';
+      const useSea = s.rangeArea !== 'circle' && Sea.meta && !(ctxR.err && ctxR.err !== 'nostart');
+      if (useSea) {
+        let maxD = 0; pts.forEach((p) => pts.forEach((q) => { maxD = Math.max(maxD, hv(p, q)); }));
+        const res = await Sea.matrix(pts.map((p) => ({ lat: p.lat, lon: p.lon })), s.rangeArea, s.draftM, Math.min(500000, maxD * 1.6 + 20000),
+          ([k, n]) => { plan.msg = `Calculating sea distances ${k}/${n}…`; const el = $('#plan-msg'); if (el) el.textContent = plan.msg; });
+        D = res.D; how = s.rangeArea === 'water' ? 'open water' : 'fairways';
+      } else D = pts.map((p) => pts.map((q) => hv(p, q)));
+      const order = chain.map((_, i) => i);
+      const r = Planner.plan({ D, nodes, order, tanks, rate, arriveL: s.planArriveL ?? 50, extraL: s.planExtraL ?? 20, defaultPrice: defPrice, kn, stopMin: 15, maxStops: 4 });
+      plan.res = { r, nodes, pts, kn, how, mode, D }; plan.sel = r.cheapest ? 'cheapest' : 'shortest';
+      plan.msg = r.cheapest ? `${r.tried} combinations checked · ${cands.length} stations near the route · distances ${how}` : '';
+    } catch (e) { plan.msg = 'Planning failed: ' + e.message; }
+    plan.busy = false; renderPlanPanel();
+  }
+  function renderPlanResults() {
+    const out = $('#plan-out'); if (!out || !plan.res) return;
+    const { r, nodes } = plan.res;
+    if (!r.cheapest) {
+      const d = r.failure && r.failure.direct;
+      out.innerHTML = `<div class="warn" style="margin:8px 0 0 0">No plan reaches the destination with your reserve and ${S().settings.planArriveL ?? 50} L left on arrival${d && isFinite(d.shortfall) ? ` — the direct route is short by about ${fi(d.shortfall)} L` : ' — the destination or a leg is not reachable with this route type'}. Try a fuel station closer to the route, a lower arrival amount, the economy speed, or another route type.</div>`;
+      return;
+    }
+    const labels = { cheapest: 'Cheapest', fewest: 'Fewest stops', shortest: 'Shortest' };
+    // the same itinerary can win several objectives: show it once with the labels joined
+    const groups = [];
+    Object.keys(labels).filter((k) => r[k]).forEach((k) => { const key = r[k].seq.join('-'), g = groups.find((x) => x.key === key); if (g) g.ks.push(k); else groups.push({ key, ks: [k] }); });
+    if (!r[plan.sel]) plan.sel = groups[0].ks[0];
+    const selKey = r[plan.sel].seq.join('-');
+    const chips = groups.map((g) => { const p = r[g.ks[0]]; return `<button class="chip ${g.key === selKey ? 'on' : ''}" data-act="plan-sel" data-k="${g.ks[0]}">${g.ks.map((k) => labels[k]).join(' · ')} — ${fi(p.buy)} € · ${p.stops} stop${p.stops === 1 ? '' : 's'}</button>`; }).join('');
+    const p = r[plan.sel];
+    const legs = p.legs.map((l, i) => {
+      const from = nodes[l.from], to = nodes[l.to], rf = l.refuelAtFrom, rL = rf.port + rf.stbd;
+      const fuelRow = rL >= 1 ? `<div class="sub" style="color:#B8470F;font-weight:600">Refuel at ${esc(from.name)}: P ${fi(rf.port)} L + S ${fi(rf.stbd)} L × ${f(from.price, 3)} €/L = ${fi(rL * from.price)} €${from.priceEstimated ? ' (price estimate)' : ''}</div>` : '';
+      return `${fuelRow}<div style="padding:4px 0;border-bottom:1px solid #ECE8DC"><b>${i + 1}. ${esc(from.name)} → ${esc(to.name)}</b><div class="sub">${f(l.nm)} NM · ${dur(l.nm / plan.res.kn)} · arrive with P ${fi(l.arrive.port)} L / S ${fi(l.arrive.stbd)} L</div></div>`;
+    }).join('');
+    out.innerHTML = `<div class="chips" style="padding:8px 0 0 0">${chips}</div>
+      <div class="grid3" style="padding:8px 0 0 0">
+        <div class="tile"><div class="lbl">Distance</div><div class="num mid">${f(p.nm)}</div><div class="hint">NM · ${dur(p.hours)}</div></div>
+        <div class="tile"><div class="lbl">Fuel bought</div><div class="num mid">${fi(p.litresBought)}</div><div class="hint">L · ${p.stops} stop${p.stops === 1 ? '' : 's'}</div></div>
+        <div class="tile dark"><div class="lbl">Cost</div><div class="num mid">${fi(p.buy)} €</div><div class="hint">${p.estimated ? 'includes estimates' : 'known prices'}</div></div></div>
+      <div style="padding-top:8px">${legs}</div>
+      <div class="sub" style="padding-top:6px">At the destination: P ${fi(p.end.port)} L · S ${fi(p.end.stbd)} L. ${esc(plan.msg)}</div>`;
+    drawPlan(p);
+  }
+  async function drawPlan(p) {
+    clearPlanLayer();
+    const m = maps.range; if (!m) return;
+    const grp = L.layerGroup().addTo(m); plan.layer = grp;
+    const { nodes, pts, how } = plan.res, s = S().settings;
+    const all = [];
+    for (const l of p.legs) {
+      const a = pts[l.from], b = pts[l.to];
+      let line = [[a.lat, a.lon], [b.lat, b.lon]];
+      if (how !== 'straight lines') { try { const r = await Sea.leg({ lat: a.lat, lon: a.lon }, { lat: b.lat, lon: b.lon }, s.rangeArea, s.draftM, l.nm * NMm * 1.3 + 5000); if (r && r.pts && r.pts.length > 1) line = r.pts; } catch (e) { /* straight */ } }
+      if (plan.layer !== grp) return;
+      L.polyline(line, { color: '#B8470F', weight: 4 }).addTo(grp); all.push(...line);
+    }
+    p.seq.forEach((ni, k) => {
+      const n = nodes[ni], q = pts[ni];
+      if (n.kind === 'start') return;
+      L.marker([q.lat, q.lon], { interactive: false, zIndexOffset: 900, icon: L.divIcon({ className: 'boat-icon', iconSize: [22, 22], iconAnchor: [11, 11], html: `<div style="width:22px;height:22px;border-radius:11px;background:${n.kind === 'end' ? '#13212F' : '#B8470F'};color:#fff;font:600 12px Barlow,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fff">${n.kind === 'end' ? '⚑' : k}</div>` }) }).addTo(grp);
+    });
+    if (all.length) m.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
+  }
+  function drawStations() {
+    const m = maps.range; if (!m) return;
+    if (stationLayer) m.removeLayer(stationLayer);
+    stationLayer = L.layerGroup().addTo(m);
+    allStations().forEach((st) => L.marker([st.lat, st.lon], { icon: fuelIcon(!!lastPrice(st.id)), title: st.name, zIndexOffset: 500 }).on('click', () => stationCard(st)).addTo(stationLayer));
+  }
+  async function stationCard(st) {
+    openStation = st; clearRoute();
+    const lp = lastPrice(st.id), area = S().settings.rangeArea;
+    const info = [st.operator && st.operator !== st.name ? esc(st.operator) : '', st.fuels && st.fuels.length ? esc(st.fuels.join(', ').replace(/_/g, ' ')) : '', st.hours ? esc(st.hours) : ''].filter(Boolean).join(' · ');
+    const head = `<div class="cardhead"><div><div class="h">${esc(st.name)}</div><div class="sub">${info || (st.user ? 'your own station' : 'OpenStreetMap')}</div></div>
+      <div style="text-align:right"><div class="num" style="font-size:20px">${lp ? f(lp.price, 3) + ' €/L' : '–'}</div><div class="sub">${lp ? (lp.src === 'refuel' ? 'you paid ' : 'seen ') + ageTxt(lp.t) : 'no price yet'}</div></div></div>`;
+    const btns = `<div class="btnrow" style="padding:0">${plan.on ? '<button class="btn small grow dark" data-act="plan-dest-st">Destination</button><button class="btn small grow" data-act="plan-via-st">Stop-over</button>' : ''}<button class="btn small grow" data-act="price-seen">Log price seen</button>${st.user ? '<button class="btn small" data-act="del-station">Delete</button>' : ''}</div>`;
+    const box = $('#range-route');
+    box.innerHTML = `<div class="card">${head}<div class="sub" id="st-route">Calculating route…</div>${btns}</div>`;
+    const ctx = rangeCtx;
+    if (!ctx || !ctx.r || !ctx.c) { $('#st-route').textContent = 'Set a start point to see the distance.'; return; }
+    let nm = NaN, how = 'straight line';
+    if (area !== 'circle' && !ctx.err && Sea.meta) {
+      try { const res = await Sea.route(st.lat, st.lon, area); if (res && res.pts && res.pts.length > 1) { nm = res.m / 1852; how = area === 'water' ? 'over open water' : 'along fairways'; routeLayer = L.polyline(res.pts, { color: '#B8470F', weight: 4, dashArray: '8 6' }).addTo(maps.range); } } catch (e) { /* fall back */ }
+    }
+    if (!isFinite(nm)) nm = Core.haversine(ctx.c, [st.lat, st.lon]) / 1852;
+    const fuel = nm * ctx.r.lpnm, ok = nm <= ctx.r.oneWay;
+    const el = $('#st-route'); if (el && openStation === st) el.innerHTML = `${f(nm)} NM ${how} · ${fi(fuel)} L at ${f(ctx.kn)} kn · <b style="color:${ok ? '#1F6E5A' : '#A63A2A'}">${ok ? 'reachable with reserve' : 'beyond range'}</b>`;
+  }
   const whyText = (e) => ({ nodata: 'No sea data downloaded yet (More → Sea data).', outside: 'The start point is outside the sea-data area.', land: 'The start point is on land or too far from water deeper than the draft limit — long-press the map at your harbour to choose a start point.', 'no fairway data': 'The sea data has no fairways.', nostart: 'No start point yet.' }[e] || e);
   const startIcon = () => L.divIcon({ className: 'boat-icon', iconSize: [22, 22], iconAnchor: [11, 11], html: '<svg width="22" height="22" viewBox="-11 -11 22 22"><circle r="8" fill="#B8470F" stroke="#fff" stroke-width="3"/><circle r="2.5" fill="#fff"/></svg>' });
   function setRangeStart(lat, lon) { S().settings.rangeStart = { lat: +lat.toFixed(5), lon: +lon.toFixed(5) }; Core.save(); toast('Start point set'); renderRange(); }
-  const startBtn = '<button class="btn small" data-act="range-start-here">Start from here</button>';
+  const startBtn = '<div class="btnrow" style="padding:0"><button class="btn small grow" data-act="range-start-here">Start from here</button><button class="btn small grow" data-act="add-station">Add fuel station here</button></div>';
   function setRangeStatus(t) { const el = $('#range-status'); if (el) el.textContent = t; }
   function clearRoute() { if (routeLayer && maps.range) maps.range.removeLayer(routeLayer); routeLayer = null; const el = $('#range-route'); if (el) el.innerHTML = ''; }
   async function rangeTap(ev) {
     const s = S(), area = s.settings.rangeArea;
     lastTap = ev.latlng;
+    if (plan.on) {
+      sheet(`<h3>Trip plan</h3><p>Use the tapped point as…</p><div class="list">
+        <button class="item" data-act="plan-dest-tap"><span class="main"><b>Destination</b></span></button>
+        <button class="item" data-act="plan-via-tap"><span class="main"><b>Stop-over (visit on the way)</b></span></button>
+        <button class="item" data-act="range-start-here-sheet"><span class="main"><b>Start point</b></span></button></div>
+        <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button></div>`);
+      return;
+    }
     clearRoute();
     const box = (msg) => { $('#range-route').innerHTML = `<div class="card"><div class="sub">${msg}</div>${startBtn}</div>`; };
     if (!rangeCtx || !rangeCtx.r) return box('Dip both tanks first to calculate a range.');
@@ -632,7 +833,7 @@
     } catch (e) { toast('Route failed: ' + e.message); }
   }
 
-  const seaInfo = (m) => `built ${dstr(Date.parse(m.built))}, depth: ${m.depthSource}, ${m.fairwayEdges} fairway segments, ${f((m.bytes || 0) / 1e6)} MB`;
+  const seaInfo = (m) => `built ${dstr(Date.parse(m.built))}, depth: ${m.depthSource}, ${m.fairwayEdges} fairway segments, ${(Sea.stations || []).length} fuel stations, ${f((m.bytes || 0) / 1e6)} MB`;
   // MORE / SETTINGS
   R.more = () => {
     const s = S().settings;
@@ -657,6 +858,10 @@
         <div class="field"><label for="rpmstep">RPM rounding</label><div class="inbox"><input id="rpmstep" inputmode="decimal" value="${s.rpmStep}" data-act="setnum" data-k="rpmStep"><span>rpm</span></div></div>
         <div class="field"><label for="reserve">Reserve<small>% of usable capacity (above suction pipe)</small></label><div class="inbox"><input id="reserve" inputmode="decimal" value="${s.reservePct}" data-act="setnum" data-k="reservePct"><span>%</span></div></div>
       </div>
+      <div class="card"><div class="cardhead"><div class="h">Ruler</div></div>
+        <div class="seg" style="margin:0"><button class="${RUL() === 'cm' ? 'on' : ''}" data-act="ruler-unit" data-u="cm">Centimetres (0.5 cm)</button><button class="${RUL() === 'mm' ? 'on' : ''}" data-act="ruler-unit" data-u="mm">Millimetres</button></div>
+        <div class="sub">Unit for dips, refuels, full-tank depth and suction-pipe height. Readings already saved are converted automatically. The tank polynomial keeps its own unit (Tanks → Polynomial).</div>
+      </div>
       <div class="card"><div class="cardhead"><div class="h">Sea data for range</div></div>
         <div class="sub">Land, depth and fairways for Suomenlahti and Saaristomeri, built by the "Build sea data" workflow in your GitHub repository. Download once on Wi-Fi; it then works offline.</div>
         <div class="field"><label for="draft">Draft limit<small>avoid water shallower than this</small></label><div class="inbox"><input id="draft" inputmode="decimal" value="${s.draftM}" data-act="setnum" data-k="draftM"><span>m</span></div></div>
@@ -668,7 +873,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 3.2 · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 4.3 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -721,10 +926,18 @@
     'sheet-close': closeSheet,
     'confirm-ok': () => { closeSheet(); if (confirmFn) confirmFn(); confirmFn = null; },
     'center': () => { follow = true; const lv = Core.live; if (lv.fix) maps.helm.setView([lv.fix.lat, lv.fix.lon], Math.max(maps.helm.getZoom(), 13)); else toast('Waiting for GPS…'); },
-    'start-trip': async () => {
+    'start-trip': () => {
       if (!('geolocation' in navigator)) return toast('This browser has no GPS access.');
-      await Core.startTrip('both'); follow = true; trackCache = []; helmTrack.setLatLngs([]); renderHelmDyn(); toast('Trip started. Set RPM when you settle on a cruise.');
+      const last = S().settings.lastLoad || 'normal';
+      sheet(`<h3>Load on board</h3><p>Helps the app learn how load changes consumption.</p><div class="list">${['light', 'normal', 'full'].map((l) => `<button class="item" data-act="start-with-load" data-l="${l}"><span class="main"><b>${LOAD_LABEL[l]}</b><span>${LOAD_HINT[l]}</span></span>${l === last ? '<span class="right"><span class="sub">last used</span></span>' : ''}</button>`).join('')}</div>`);
     },
+    'start-with-load': async (el) => {
+      closeSheet();
+      await Core.startTrip('both', el.dataset.l); follow = true; trackCache = []; helmTrack.setLatLngs([]); renderHelmDyn(); toast('Trip started (' + LOAD_LABEL[el.dataset.l].toLowerCase() + ' load). Set RPM when you settle on a cruise.');
+    },
+    'load-sheet': () => sheet(`<h3>Load on board</h3><div class="list">${['light', 'normal', 'full'].map((l) => `<button class="item" data-act="set-load" data-l="${l}"><span class="main"><b>${LOAD_LABEL[l]}</b><span>${LOAD_HINT[l]}</span></span>${S().active && S().active.load === l ? '<span class="right"><span class="num">✓</span></span>' : ''}</button>`).join('')}</div>`),
+    'set-load': (el) => { if (S().active) { S().active.load = el.dataset.l; S().settings.lastLoad = el.dataset.l; Core.save(); } closeSheet(); renderHelmDyn(); },
+    'trip-load': (el) => { Core.setTripLoad(el.dataset.id, el.dataset.l); toast('Load updated — curves refitted'); R.trip(); },
     'pause': () => { Core.setPaused(!S().active.paused); renderHelmDyn(); },
     'mode-sheet': () => sheet(`<h3>Engines running</h3><p>Switch when you start or stop an engine. A stopped engine uses no fuel.</p><div class="list">${Core.MODES.map((m) => `<button class="item" data-act="set-mode" data-m="${m}"><span class="main"><b>${MODE_LABEL[m]}</b></span>${S().active && S().active.mode === m ? '<span class="right"><span class="num">✓</span></span>' : ''}</button>`).join('')}</div>`),
     'set-mode': (el) => { Core.setMode(el.dataset.m); closeSheet(); renderHelmDyn(); toast(MODE_LABEL[el.dataset.m]); },
@@ -737,10 +950,10 @@
     },
     'set-rpm': (el) => { Core.setRpm(el.dataset.r ? +el.dataset.r : null); closeSheet(); renderHelmDyn(); },
     'set-rpm-custom': () => { const r = Math.round(Core.num($('#rpm-custom').value)); if (!(r > 300 && r < 5000)) return toast('Enter RPM between 300 and 5000'); Core.setRpm(r); closeSheet(); renderHelmDyn(); },
-    'end-trip': () => confirmSheet('End this trip?', 'The trip is saved and you can dip the tanks next.', 'End trip', async () => { const tr = await Core.stopTrip(); go('tripend', { id: tr.id }); }),
+    'end-trip': () => confirmSheet('End this trip?', 'The trip is saved and you can dip the tanks next.', 'End trip', async () => { const tr = await Core.stopTrip(); go('tripend', { id: tr.id }); setTimeout(() => Wind.processPending(windDone), 2000); }),
     'save-dips': () => {
       let n = 0; const rough = $('#dip-rough').checked;
-      S().tanks.forEach((t) => { const mm = Core.num($('#dip-' + t.id).value); if (isFinite(mm) && mm >= 0) { Core.addDip(t.id, mm, rough); n++; } });
+      S().tanks.forEach((t) => { const mm = rv($('#dip-' + t.id).value); if (isFinite(mm) && mm >= 0) { Core.addDip(t.id, mm, rough); n++; } });
       toast(n ? 'Dip saved. Consumption curves updated.' : 'Trip saved without a dip.');
       go('trips');
     },
@@ -764,14 +977,14 @@
     'dip-sheet': () => {
       const t = Core.tank(tankSel);
       sheet(`<h3>Dip ${esc(t.name)} tank</h3><p>Ruler depth. Litres come from the tank curve.</p>
-        <div class="card"><div class="field"><label for="sd-mm">Depth<small id="sd-L"> </small></label><div class="inbox"><input id="sd-mm" inputmode="decimal" data-sdip="1"><span>mm</span></div></div>
+        <div class="card"><div class="field"><label for="sd-mm">Depth<small id="sd-L"> </small></label><div class="inbox"><input id="sd-mm" inputmode="decimal" data-sdip="1"><span>${RUL()}</span></div></div>
         ${roughBox('sd-rough')}
         <div class="check"><input type="checkbox" id="sd-both"><label for="sd-both">I'll dip the other tank too</label></div></div>
         <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="save-dip">Save dip</button></div>`);
       setTimeout(() => $('#sd-mm').focus(), 100);
     },
     'save-dip': () => {
-      const mm = Core.num($('#sd-mm').value); if (!isFinite(mm)) return toast('Enter the depth in mm');
+      const mm = rv($('#sd-mm').value); if (!isFinite(mm)) return toast('Enter the depth in ' + RUL());
       Core.addDip(tankSel, mm, $('#sd-rough').checked); const both = $('#sd-both').checked; closeSheet();
       if (mm < Core.tank(tankSel).pipeMm) toast('Below suction pipe — engine may draw air', 4000);
       if (both) { tankSel = S().tanks.find((t) => t.id !== tankSel).id; R.tanks(); A['dip-sheet'](); } else R.tanks();
@@ -782,15 +995,15 @@
         <div class="card">
           <div class="field"><label for="et-name">Name</label><div class="inbox wide" style="width:50%"><input id="et-name" value="${esc(t.name)}"></div></div>
           <div class="field"><label for="et-cap">Capacity</label><div class="inbox"><input id="et-cap" inputmode="decimal" value="${t.capacity}"><span>L</span></div></div>
-          <div class="field"><label for="et-max">Full-tank depth<small>ruler reading when full</small></label><div class="inbox"><input id="et-max" inputmode="decimal" value="${t.maxMm}"><span>mm</span></div></div>
-          <div class="field"><label for="et-pipe">Suction pipe ends at<small>depth on the ruler</small></label><div class="inbox"><input id="et-pipe" inputmode="decimal" value="${byL ? '' : t.pipeMm}"><span>mm</span></div></div>
+          <div class="field"><label for="et-max">Full-tank depth<small>ruler reading when full</small></label><div class="inbox"><input id="et-max" inputmode="decimal" value="${rn(t.maxMm)}"><span>${RUL()}</span></div></div>
+          <div class="field"><label for="et-pipe">Suction pipe ends at<small>depth on the ruler</small></label><div class="inbox"><input id="et-pipe" inputmode="decimal" value="${byL ? '' : rn(t.pipeMm)}"><span>${RUL()}</span></div></div>
           <div class="field"><label for="et-pipeL">…or unusable litres<small>leave empty to use the depth</small></label><div class="inbox"><input id="et-pipeL" inputmode="decimal" value="${byL ? t.pipeL : ''}"><span>L</span></div></div>
         </div>
         <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="save-tank">Save</button></div>`);
     },
     'save-tank': () => {
       const t = Core.tank(tankSel);
-      const cap = Core.num($('#et-cap').value), mx = Core.num($('#et-max').value), pmm = Core.num($('#et-pipe').value), pL = Core.num($('#et-pipeL').value);
+      const cap = Core.num($('#et-cap').value), mx = rv($('#et-max').value), pmm = rv($('#et-pipe').value), pL = Core.num($('#et-pipeL').value);
       if (!(cap > 0) || !(mx > 0)) return toast('Check capacity and full-tank depth');
       t.name = $('#et-name').value.trim() || t.name; t.capacity = cap; t.maxMm = mx;
       if (isFinite(pL)) t.pipeL = pL; else { t.pipeL = null; t.pipeMm = isFinite(pmm) ? pmm : 0; }
@@ -815,11 +1028,11 @@
       toast('Saved. Full-tank depth gives ' + fi(full) + ' L (capacity ' + fi(t.capacity) + ' L)', 4500); R.tanks();
     },
     'add-anchor': () => sheet(`<h3>Known point</h3><p>A depth where you know the litres exactly, e.g. after filling an empty tank in measured steps.</p>
-        <div class="card"><div class="field"><label for="ac-mm">Depth</label><div class="inbox"><input id="ac-mm" inputmode="decimal"><span>mm</span></div></div>
+        <div class="card"><div class="field"><label for="ac-mm">Depth</label><div class="inbox"><input id="ac-mm" inputmode="decimal"><span>${RUL()}</span></div></div>
         <div class="field"><label for="ac-L">Litres in tank</label><div class="inbox"><input id="ac-L" inputmode="decimal"><span>L</span></div></div></div>
         <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="save-anchor">Add</button></div>`),
     'save-anchor': () => {
-      const mm = Core.num($('#ac-mm').value), Lv = Core.num($('#ac-L').value);
+      const mm = rv($('#ac-mm').value), Lv = Core.num($('#ac-L').value);
       if (!isFinite(mm) || !isFinite(Lv)) return toast('Enter both values');
       const p = Core.addAnchor(tankSel, mm, Lv); closeSheet(); R.tanks(); if (p) proposalSheet();
     },
@@ -835,7 +1048,11 @@
       if (!c.ok) return toast(c.rows.length > 1 ? 'Enter depth before and after for both tanks and the pump total' : 'Enter the depth before filling and the litres pumped');
       const rough = $('#rf-rough').checked;
       const p = Core.addRefuel(c.rows.map((r) => ({ tank: r.t.id, beforeMm: r.b, pumped: r.p, afterMm: r.a, brim: r.brim })), c.price, rough);
-      if (isFinite(c.price)) { S().settings.price = String(c.price); Core.save(); }
+      if (isFinite(c.price)) {
+        S().settings.price = String(c.price); Core.save();
+        const fx = Core.live.fix, ns = fx && nearestStation(fx.lat, fx.lon, 1000);
+        if (ns) { Core.addStationPrice(ns.st.id, c.price, 'refuel', c.pumped); setTimeout(() => toast('Price saved for ' + ns.st.name), 1500); }
+      }
       go('tanks');
       if (p) proposalSheet(); else toast('Refuel saved');
     },
@@ -850,6 +1067,31 @@
         setTimeout(() => location.reload(), 2500);
       } catch (e) { toast('Update check failed: ' + e.message); }
     },
+    'ruler-unit': (el) => { S().settings.rulerUnit = el.dataset.u; Core.save(); toast('Ruler in ' + (el.dataset.u === 'cm' ? 'centimetres' : 'millimetres')); R.more(); },
+    'price-seen': () => {
+      const st = openStation; if (!st) return;
+      sheet(`<h3>Price at ${esc(st.name)}</h3><p>Diesel price you saw, for example on the price board.</p><div class="card"><div class="field"><label for="ps-p">Price</label><div class="inbox"><input id="ps-p" inputmode="decimal"><span>€/L</span></div></div></div><div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="save-price-seen">Save</button></div>`);
+      setTimeout(() => $('#ps-p').focus(), 100);
+    },
+    'save-price-seen': () => { const p = Core.num($('#ps-p').value); if (!(p > 0 && p < 10)) return toast('Enter the price in €/L'); Core.addStationPrice(openStation.id, p, 'seen'); closeSheet(); toast('Price saved'); drawStations(); stationCard(openStation); },
+    'add-station': () => {
+      if (!lastTap) return;
+      sheet(`<h3>Add fuel station</h3><p>A fuel station missing from the map, at the point you tapped.</p><div class="card"><div class="field"><label for="ns-n">Name</label><div class="inbox wide" style="width:60%"><input id="ns-n" placeholder="e.g. Harbour fuel"></div></div></div><div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="save-station">Add</button></div>`);
+    },
+    'save-station': () => { const st = Core.addUserStation(lastTap.lat, lastTap.lng, $('#ns-n').value.trim()); closeSheet(); toast('Fuel station added'); drawStations(); stationCard(st); },
+    'del-station': () => confirmSheet('Delete this station?', 'Its price history is kept in backups but the marker is removed.', 'Delete', () => { Core.deleteUserStation(openStation.id); openStation = null; clearRoute(); drawStations(); }),
+    'plan-open': () => { plan.on = true; plan.msg = 'Tap the map or a fuel station to choose the destination.'; renderPlanPanel(); },
+    'plan-close': () => { plan.on = false; plan.res = null; plan.msg = ''; clearPlanLayer(); renderPlanPanel(); },
+    'plan-dest-tap': () => { closeSheet(); plan.dest = { lat: lastTap.lat, lon: lastTap.lng, name: '' }; plan.res = null; clearPlanLayer(); renderPlanPanel(); },
+    'plan-via-tap': () => { closeSheet(); plan.vias.push({ lat: lastTap.lat, lon: lastTap.lng, name: 'Stop-over ' + (plan.vias.length + 1) }); plan.res = null; clearPlanLayer(); renderPlanPanel(); },
+    'range-start-here-sheet': () => { closeSheet(); setRangeStart(lastTap.lat, lastTap.lng); },
+    'plan-dest-st': () => { const st = openStation; if (!st) return; plan.dest = { lat: st.lat, lon: st.lon, name: st.name }; plan.res = null; clearRoute(); clearPlanLayer(); renderPlanPanel(); },
+    'plan-via-st': () => { const st = openStation; if (!st) return; plan.vias.push({ lat: st.lat, lon: st.lon, name: st.name }); plan.res = null; clearRoute(); clearPlanLayer(); renderPlanPanel(); },
+    'plan-clear-dest': () => { plan.dest = null; plan.res = null; clearPlanLayer(); renderPlanPanel(); },
+    'plan-del-via': (el) => { plan.vias.splice(+el.dataset.i, 1); plan.res = null; clearPlanLayer(); renderPlanPanel(); },
+    'plan-speed': (el) => { plan.speed = el.dataset.s; plan.res = null; clearPlanLayer(); renderPlanPanel(); },
+    'plan-calc': () => calcPlan(),
+    'plan-sel': (el) => { plan.sel = el.dataset.k; renderPlanResults(); },
     'range-start-here': () => { if (lastTap) setRangeStart(lastTap.lat, lastTap.lng); },
     'range-start-gps': () => { S().settings.rangeStart = null; Core.save(); toast('Start from the boat GPS position'); renderRange(); },
     'range-area': (el) => { S().settings.rangeArea = el.dataset.a; Core.save(); renderRange(); },
@@ -882,7 +1124,7 @@
     const el = e.target;
     if (el.dataset.dip) dipPreview();
     if (el.dataset.rf) refuelCalc();
-    if (el.dataset.sdip) { const t = Core.tank(tankSel), mm = Core.num(el.value), Lv = Core.litres(t, mm); $('#sd-L').textContent = isFinite(Lv) ? '= ' + fi(Lv) + ' L' + (mm < t.pipeMm ? ' · below suction pipe!' : '') : ' '; }
+    if (el.dataset.sdip) { const t = Core.tank(tankSel), mm = rv(el.value), Lv = Core.litres(t, mm); $('#sd-L').textContent = isFinite(Lv) ? '= ' + fi(Lv) + ' L' + (mm < t.pipeMm ? ' · below suction pipe!' : '') : ' '; }
   });
   document.addEventListener('change', async (e) => {
     const el = e.target, act = el.dataset.act, s = S().settings;
@@ -890,10 +1132,11 @@
     if (act === 'seamarks') { s.seamarks = el.checked; Core.save(); refreshBaseLayers(); }
     if (act === 'tlayer') { s.traficomLayer = el.value; Core.save(); refreshBaseLayers(); }
     if (act === 'nlskey') { s.nlsKey = el.value.trim(); Core.save(); refreshBaseLayers(); }
+    if (act === 'plan-kn') { const v = Core.num(el.value); if (v >= 1 && v <= 30) { plan.customKn = v; plan.res = null; clearPlanLayer(); } else toast('Speed 1–30 kn'); }
     if (act === 'setnum') {
       const v = Core.num(el.value), k = el.dataset.k;
-      const ok = { reservePct: v >= 0 && v < 90, minCruiseKn: v >= 1 && v <= 20, effMarginPct: v >= 0 && v <= 100, rpmStep: v >= 1 && v <= 500, draftM: v >= 0 && v <= 10 }[k];
-      if (ok) { s[k] = v; Core.save(); toast('Saved'); } else { toast('Value out of range'); el.value = s[k]; }
+      const ok = { reservePct: v >= 0 && v < 90, minCruiseKn: v >= 1 && v <= 20, effMarginPct: v >= 0 && v <= 100, rpmStep: v >= 1 && v <= 500, draftM: v >= 0 && v <= 10, planArriveL: v >= 0 && v <= 800, planExtraL: v >= 0 && v <= 300 }[k];
+      if (ok) { s[k] = v; Core.save(); toast('Saved'); if (k.startsWith('plan')) { plan.res = null; clearPlanLayer(); } } else { toast('Value out of range'); el.value = s[k]; }
     }
     if (act === 'import' && el.files[0]) {
       try { await Core.importAll(JSON.parse(await el.files[0].text())); toast('Backup imported'); go('helm'); }
@@ -902,8 +1145,11 @@
   });
 
   // ---------- start ----------
+  const windDone = () => { if (current === 'trip' || current === 'curve' || current === 'trips') R[current](); };
+  window.addEventListener('online', () => Wind.processPending(windDone));
   Core.init().then(() => {
     Sea.init();
+    setTimeout(() => Wind.processPending(windDone), 3000);
     go('helm');
     Core.resumeIfActive();
     if (!S().active && 'geolocation' in navigator) {
@@ -917,5 +1163,5 @@
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded && !(S() && S().active)) { reloaded = true; location.reload(); } });
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => reg.update()).catch(() => {}));
   }
-  window.FuelLogDebug = { go, Core, Sea, proposalSheet };
+  window.FuelLogDebug = { go, Core, Sea, Wind, proposalSheet, plan };
 })();

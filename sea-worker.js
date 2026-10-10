@@ -133,21 +133,27 @@ function waterPath(S, idx) { // back from idx to start
   return out.reverse();
 }
 
+// water distance from a connector search S to fairway node i (the node can sit on a "land" cell at 100 m resolution: look around)
+function nodeCellDist(S, i) {
+  const ci = FW.cellIdx[i]; if (ci < 0) return [Infinity, -1];
+  let best = S.dist[ci], bestCell = ci;
+  if (!isFinite(best)) {
+    const r0 = (ci / G.W) | 0, c0 = ci - r0 * G.W;
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+      const r = r0 + dr, c = c0 + dc; if (r < 0 || c < 0 || r >= G.H || c >= G.W) continue;
+      const j = r * G.W + c, dd = S.dist[j] + Math.hypot(dr, dc) * G.scale[r0];
+      if (dd < best) { best = dd; bestCell = j; }
+    }
+  }
+  return [best, bestCell];
+}
+
 function fairwaySearch(lat, lon, maxM, draftDm, connectM) {
   C = waterSearch(lat, lon, Math.min(maxM, connectM), draftDm);
   const nd = new Float32Array(FW.n).fill(Infinity), prev = new Int32Array(FW.n).fill(-1), src = new Int8Array(FW.n);
   const h = new Heap(1 << 12);
   if (C.start >= 0) for (let i = 0; i < FW.n; i++) {
-    const ci = FW.cellIdx[i]; if (ci < 0) continue;
-    let best = C.dist[ci], bestCell = ci;
-    if (!isFinite(best)) { // fairway node can sit on a "land" cell at 100 m resolution: look around
-      const r0 = (ci / G.W) | 0, c0 = ci - r0 * G.W;
-      for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
-        const r = r0 + dr, c = c0 + dc; if (r < 0 || c < 0 || r >= G.H || c >= G.W) continue;
-        const j = r * G.W + c, dd = C.dist[j] + Math.hypot(dr, dc) * G.scale[r0];
-        if (dd < best) { best = dd; bestCell = j; }
-      }
-    }
+    const [best, bestCell] = nodeCellDist(C, i);
     if (isFinite(best) && best <= connectM) { nd[i] = best; src[i] = 1; prev[i] = -2 - bestCell; h.push(best, i); }
   }
   const done = new Uint8Array(FW.n);
@@ -223,6 +229,69 @@ function route(lat, lon, mode) {
   return { m: F.nd[bi], pts };
 }
 
+// ---- planner support: distances between many points, and leg geometry ----
+// In fairway mode each end of a leg may be up to PLAN_CONNECT metres of water away from the fairway network.
+const PLAN_CONNECT = 9260;
+function nearestReached(dist, lat, lon, radCells) {
+  const t = cellOf(lat, lon); if (t < 0) return [Infinity, -1];
+  const r0 = (t / G.W) | 0, c0 = t - r0 * G.W; let best = Infinity, bc = -1;
+  for (let dr = -radCells; dr <= radCells; dr++) for (let dc = -radCells; dc <= radCells; dc++) {
+    const r = r0 + dr, c = c0 + dc; if (r < 0 || c < 0 || r >= G.H || c >= G.W) continue;
+    const j = r * G.W + c, v = dist[j]; if (!isFinite(v)) continue;
+    const d = v + Math.hypot(dr, dc) * G.scale[r0]; if (d < best) { best = d; bc = j; }
+  }
+  return [best, bc];
+}
+// fairway nodes reachable over water from a point: [{ node, d }]
+function endConnector(p, draftDm) {
+  const S = waterSearch(p.lat, p.lon, PLAN_CONNECT, draftDm), out = [];
+  if (S.start < 0) return { S, out };
+  for (let i = 0; i < FW.n; i++) { const [d] = nodeCellDist(S, i); if (isFinite(d) && d <= PLAN_CONNECT) out.push({ node: i, d }); }
+  return { S, out };
+}
+function matrix(points, mode, draftDm, maxM, onRow) {
+  const n = points.length, D = [];
+  const ends = mode === 'water' || !FW ? null : points.map((p) => endConnector(p, draftDm).out);
+  for (let i = 0; i < n; i++) {
+    const p = points[i], row = new Array(n).fill(Infinity);
+    if (mode === 'water' || !FW) {
+      const S = waterSearch(p.lat, p.lon, maxM, draftDm);
+      if (S.start >= 0) for (let j = 0; j < n; j++) row[j] = i === j ? 0 : nearestReached(S.dist, points[j].lat, points[j].lon, 10)[0];
+    } else {
+      fairwaySearch(p.lat, p.lon, maxM, draftDm, PLAN_CONNECT);
+      if (C.start >= 0) for (let j = 0; j < n; j++) {
+        if (i === j) { row[j] = 0; continue; }
+        let best = nearestReached(C.dist, points[j].lat, points[j].lon, 10)[0];   // short hop over water
+        for (const e of ends[j]) { const v = F.nd[e.node] + e.d; if (v < best) best = v; }
+        row[j] = best;
+      }
+    }
+    D.push(row); onRow && onRow(i + 1, n);
+  }
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) { const m = Math.min(D[i][j], D[j][i]); D[i][j] = D[j][i] = m; }
+  return D;
+}
+function leg(a, b, mode, draftDm, maxM) {
+  if (mode === 'water' || !FW) { W = waterSearch(a.lat, a.lon, maxM, draftDm); if (W.start < 0) return null; return route(b.lat, b.lon, 'water'); }
+  fairwaySearch(a.lat, a.lon, maxM, draftDm, PLAN_CONNECT); if (C.start < 0) return null;
+  const Cs = C, Fs = F;
+  const [direct, dCell] = nearestReached(Cs.dist, b.lat, b.lon, 10);
+  const E = endConnector(b, draftDm);
+  let best = direct, bn = -1, bd = 0;
+  for (const e of E.out) { const v = Fs.nd[e.node] + e.d; if (v < best) { best = v; bn = e.node; bd = e.d; } }
+  if (!isFinite(best)) return null;
+  const thin = (arr) => arr.filter((_, k) => k % 3 === 0 || k === arr.length - 1).map(centre);
+  if (bn < 0) return { m: best, pts: thin(waterPath(Cs, dCell)).concat([[b.lat, b.lon]]) };
+  const nodes = []; let i = bn, guard = 0;
+  while (i >= 0 && guard++ < 1e6) { nodes.push(i); i = Fs.prev[i]; }
+  nodes.reverse();
+  const entryCell = -2 - Fs.prev[nodes[0]];
+  const head = entryCell >= 0 ? thin(waterPath(Cs, entryCell)) : [];
+  const [, exitCell] = nodeCellDist(E.S, bn);
+  const tail = exitCell >= 0 ? thin(waterPath(E.S, exitCell).reverse()) : [];   // from the fairway on to b
+  return { m: best, pts: [[a.lat, a.lon]].concat(head, nodes.map((n) => [FW.lat[n], FW.lon[n]]), tail, [[b.lat, b.lon]]) };
+}
+
 onmessage = (e) => {
   const m = e.data, id = m.id;
   try {
@@ -239,6 +308,8 @@ onmessage = (e) => {
     } else if (m.cmd === 'paintWater') { res = paintWater(m.r1, m.r2); if (res) { postMessage({ id, res }, [res.buf.buffer]); return; } }
     else if (m.cmd === 'paintFairways') res = paintFairways(m.r1, m.r2);
     else if (m.cmd === 'route') res = route(m.lat, m.lon, m.mode);
+    else if (m.cmd === 'matrix') res = { D: matrix(m.points, m.mode, m.draftDm, m.maxM, (k, n) => postMessage({ id, progress: [k, n] })) };
+    else if (m.cmd === 'leg') res = leg(m.a, m.b, m.mode, m.draftDm, m.maxM);
     postMessage({ id, res });
   } catch (err) { postMessage({ id, error: String(err && err.message || err) }); }
 };

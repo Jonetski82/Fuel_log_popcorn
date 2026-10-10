@@ -2,20 +2,20 @@
 'use strict';
 
 const Sea = (() => {
-  let worker = null, seq = 0, meta = null, loading = null;
+  let worker = null, seq = 0, meta = null, loading = null, stations = [];
   const pending = new Map();
 
   function ensureWorker() {
     if (worker) return worker;
     worker = new Worker('sea-worker.js');
-    worker.onmessage = (e) => { const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data.res); };
+    worker.onmessage = (e) => { const p = pending.get(e.data.id); if (!p) return; if (e.data.progress) { if (p.onProgress) p.onProgress(e.data.progress); return; } pending.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data.res); };
     worker.onerror = (e) => { pending.forEach((p) => p.rej(new Error(e.message || 'worker error'))); pending.clear(); };
     return worker;
   }
-  function call(cmd, args = {}, transfer = []) {
+  function call(cmd, args = {}, transfer = [], onProgress) {
     ensureWorker();
     const id = ++seq;
-    return new Promise((res, rej) => { pending.set(id, { res, rej }); worker.postMessage({ id, cmd, ...args }, transfer); });
+    return new Promise((res, rej) => { pending.set(id, { res, rej, onProgress }); worker.postMessage({ id, cmd, ...args }, transfer); });
   }
 
   async function gunzip(buf) {
@@ -26,6 +26,8 @@ const Sea = (() => {
   }
 
   async function loadFromStore() {
+    const fj = await Core.kvGet('sea-fuel');
+    stations = (fj && fj.stations) || [];
     const m = await Core.kvGet('sea-meta');
     if (!m) return false;
     const g = await Core.kvGet('sea-grid'), f = await Core.kvGet('sea-fw');
@@ -50,6 +52,8 @@ const Sea = (() => {
     const gb = await g.arrayBuffer();
     onStep && onStep('Downloading fairways…');
     const f = await fetch(u('fairways.json.gz')); const fb = f.ok ? await f.arrayBuffer() : null;
+    onStep && onStep('Downloading fuel stations…');
+    try { const fr = await fetch(u('fuel.json')); if (fr.ok) await Core.kvSet('sea-fuel', await fr.json()); } catch (e) { /* optional */ }
     await Core.kvSet('sea-grid', gb); if (fb) await Core.kvSet('sea-fw', fb);
     m.downloaded = Date.now(); m.bytes = gb.byteLength + (fb ? fb.byteLength : 0);
     await Core.kvSet('sea-meta', m);
@@ -79,6 +83,9 @@ const Sea = (() => {
     return { mode, ms: s.ms, reached: s.reached, segs };
   }
   const route = (lat, lon, mode) => call('route', { lat, lon, mode });
+  async function matrix(points, mode, draftM, maxM, onProgress) { await init(); return call('matrix', { points, mode, draftDm: Math.round(draftM * 10), maxM }, [], onProgress); }
+  const leg = (a, b, mode, draftM, maxM) => call('leg', { a, b, mode, draftDm: Math.round(draftM * 10), maxM });
+  const inside = (lat, lon) => call('inside', { lat, lon });
 
-  return { init, download, compute, route, get meta() { return meta; } };
+  return { init, download, compute, route, matrix, leg, inside, get meta() { return meta; }, get stations() { return stations; } };
 })();
