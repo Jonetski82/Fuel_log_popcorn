@@ -530,9 +530,12 @@
     if (!rangeBuilt) {
       v.innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Range</div><div class="sub" id="range-sub"></div></div></div>
         <div class="seg" id="range-seg"></div>
-        <div class="mapbox" style="height:36vh;min-height:220px;margin-top:10px"><div id="map-range" class="map"></div></div>
+        <div class="seg" id="range-area" style="margin-top:8px"></div>
+        <div class="mapbox" style="height:40vh;min-height:240px;margin-top:10px"><div id="map-range" class="map"></div></div>
+        <div class="note" id="range-status"></div>
+        <div id="range-route"></div>
         <div id="range-dyn"></div>`;
-      getMap('range'); rangeBuilt = true;
+      getMap('range').on('click', rangeTap); rangeBuilt = true;
     }
     if (!rangeEng) rangeEng = S().active ? S().active.mode : 'both';
     renderRange();
@@ -545,23 +548,72 @@
     const r = Core.range(rangeEng, kn), r2 = Core.range(rangeEng, alt);
     $('#range-sub').textContent = s.tanks.map((t) => t.name + ' ' + fi(Core.usable(t.id).usable) + ' L usable').join(' · ');
     $('#range-seg').innerHTML = `<button class="${rangeMode === 'round' ? 'on' : ''}" data-act="range-mode" data-m="round">Out &amp; back</button><button class="${rangeMode === 'one' ? 'on' : ''}" data-act="range-mode" data-m="one">One way</button>`;
+    const ar = s.settings.rangeArea;
+    $('#range-area').innerHTML = [['water', 'Open water'], ['fairway', 'Fairways'], ['circle', 'Circle']].map(([k, l]) => `<button class="${ar === k ? 'on' : ''}" data-act="range-area" data-a="${k}">${l}</button>`).join('');
     const nmv = (x) => (x ? (rangeMode === 'round' ? x.round : x.oneWay) : NaN);
     $('#range-dyn').innerHTML = `
       <div class="chips" style="padding-top:10px">${Core.MODES.map((m) => `<button class="chip ${m === rangeEng ? 'on' : ''}" data-act="range-eng" data-m="${m}">${MODE_LABEL[m]}</button>`).join('')}</div>
       ${!r ? '<div class="warn">Dip both tanks once (Tanks → Log dip) to see the range.</div>' : `
       <div class="chips" style="padding-top:8px"><button class="chip ${rangeSpeed === 'now' ? 'on' : ''}" data-act="range-speed" data-s="now">At ${f(nowKn)} kn ${lv.sogAvg >= 2 ? '(now)' : ''}</button><button class="chip ${rangeSpeed === 'eco' ? 'on' : ''}" data-act="range-speed" data-s="eco">At ${f(ecoKn)} kn (economy)</button></div>
       <div class="card dark"><div class="cardhead"><div><div class="sub">${rangeMode === 'round' ? 'Turn back before' : 'Reach'}</div><div class="num" style="font-size:30px">${fi(nmv(r))} NM</div><div class="sub">${f(r.lpnm)} L/NM at ${f(kn)} kn</div></div><div style="text-align:right;max-width:170px" class="sub">${rangeEng === 'both' ? 'Limited by ' + esc(Core.tank(r.limit).name) + ' tank' + (isFinite(r.otherNm) ? ` (other lasts ${fi(rangeMode === 'round' ? r.otherNm / 2 : r.otherNm)} NM)` : '') : 'Only the ' + esc(Core.tank(rangeEng).name) + ' tank is used'}<br>Dashed: ${fi(nmv(r2))} NM at ${f(alt)} kn</div></div></div>`}
-      <div class="note">Usable fuel excludes what lies below the suction pipe and your ${s.settings.reservePct}% reserve. Circles are straight-line distance; routes through the archipelago are longer, and wind and sea add to consumption.</div>`;
-    const m = maps.range; m._over.clearLayers();
-    const c = lv.fix ? [lv.fix.lat, lv.fix.lon] : m.getCenter();
-    if (r) {
-      L.circle(c, { radius: nmv(r) * 1852, color: '#1F5675', weight: 2, fillColor: '#1F5675', fillOpacity: 0.18 }).addTo(m._over);
-      if (r2) L.circle(c, { radius: nmv(r2) * 1852, color: '#1F5675', weight: 2, dashArray: '6 5', fill: false }).addTo(m._over);
-      L.marker(c, { icon: boatIcon(lv.fix ? lv.fix.heading || 0 : 0), interactive: false }).addTo(m._over);
-      m.invalidateSize(); m.fitBounds(L.latLng(c).toBounds(Math.max(nmv(r), nmv(r2) || 0) * 1852 * 2.1));
-    }
+      <div class="note">Usable fuel excludes what lies below the suction pipe and your ${s.settings.reservePct}% reserve. Open water avoids land and water shallower than the ${f(s.settings.draftM)} m draft limit (100 m grid); Fairways follows marked fairway lines. Planning aid only — wind and sea add to consumption.</div>`;
+    const m = maps.range; m._over.clearLayers(); clearRoute();
+    const c = lv.fix ? [lv.fix.lat, lv.fix.lon] : [m.getCenter().lat, m.getCenter().lng];
+    rangeCtx = { r, r2, kn, alt, c, nmv };
+    if (!r) return;
+    L.marker(c, { icon: boatIcon(lv.fix ? lv.fix.heading || 0 : 0), interactive: false, zIndexOffset: 1000 }).addTo(m._over);
+    m.invalidateSize(); m.fitBounds(L.latLng(c).toBounds(Math.max(nmv(r), nmv(r2) || 0) * 1852 * 2.1));
+    const area = s.settings.rangeArea;
+    const circles = (why) => {
+      L.circle(c, { radius: nmv(r) * 1852, color: '#1F5675', weight: 2, fillColor: '#1F5675', fillOpacity: 0.18, interactive: false }).addTo(m._over);
+      if (r2) L.circle(c, { radius: nmv(r2) * 1852, color: '#1F5675', weight: 2, dashArray: '6 5', fill: false, interactive: false }).addTo(m._over);
+      setRangeStatus(why ? why + ' Showing straight-line circles.' : 'Straight-line circles.');
+    };
+    if (area === 'circle') return circles('');
+    const token = ++rangeToken;
+    setRangeStatus('Calculating ' + (area === 'water' ? 'reachable water' : 'reachable fairways') + '…');
+    Sea.compute(area, c[0], c[1], nmv(r) * 1852, (r2 ? nmv(r2) : 0) * 1852, s.settings.draftM).then((res) => {
+      if (token !== rangeToken) return;
+      if (res.error) {
+        const why = { nodata: 'No sea data downloaded yet (More → Sea data).', outside: 'The boat is outside the sea-data area.', land: 'No navigable water found at the boat position for the draft limit.', 'no fairway data': 'The sea data has no fairways.' }[res.error] || res.error;
+        return circles(why);
+      }
+      if (res.mode === 'water' && res.img) {
+        const cv = document.createElement('canvas'); cv.width = res.img.w; cv.height = res.img.h;
+        cv.getContext('2d').putImageData(new ImageData(res.img.buf, res.img.w, res.img.h), 0, 0);
+        L.imageOverlay(cv.toDataURL(), res.img.bounds, { opacity: 1, interactive: false, className: 'sea-overlay' }).addTo(m._over);
+      }
+      if (res.mode === 'fairway') {
+        const rnd = rangeRenderer || (rangeRenderer = L.canvas({ padding: 0.3 }));
+        const toLines = (a) => a.map((q) => [[q[0], q[1]], [q[2], q[3]]]);
+        if (res.segs.far.length) L.polyline(toLines(res.segs.far), { color: '#4F8FB0', weight: 3, opacity: 0.8, renderer: rnd, interactive: false }).addTo(m._over);
+        if (res.segs.near.length) L.polyline(toLines(res.segs.near), { color: '#13212F', weight: 4, renderer: rnd, interactive: false }).addTo(m._over);
+      }
+      const lo = r2 && nmv(r2) < nmv(r) ? alt : kn, hi = lo === kn ? alt : kn;
+      setRangeStatus((area === 'water' ? 'Dark = reachable at ' + f(lo) + ' kn, light = also at ' + f(hi) + ' kn' : 'Black = fairways reachable at ' + f(lo) + ' kn, blue = also at ' + f(hi) + ' kn') +
+        ` · draft limit ${f(s.settings.draftM)} m · ${(res.ms / 1000).toFixed(1)} s. Tap the map for a route.`);
+    }).catch((e) => { if (token === rangeToken) circles('Calculation failed (' + e.message + ').'); });
+  }
+  let rangeToken = 0, rangeCtx = null, rangeRenderer = null, routeLayer = null;
+  function setRangeStatus(t) { const el = $('#range-status'); if (el) el.textContent = t; }
+  function clearRoute() { if (routeLayer && maps.range) maps.range.removeLayer(routeLayer); routeLayer = null; const el = $('#range-route'); if (el) el.innerHTML = ''; }
+  async function rangeTap(ev) {
+    const s = S(), area = s.settings.rangeArea;
+    if (area === 'circle' || !rangeCtx || !rangeCtx.r || !Sea.meta) return;
+    clearRoute();
+    try {
+      const res = await Sea.route(ev.latlng.lat, ev.latlng.lng, area);
+      if (!res || !res.pts || res.pts.length < 2) { $('#range-route').innerHTML = '<div class="card"><div class="sub">No route to that point within the calculated range.</div></div>'; return; }
+      routeLayer = L.polyline(res.pts, { color: '#B8470F', weight: 4, dashArray: '8 6' }).addTo(maps.range);
+      const nm = res.m / 1852, { r, kn, nmv } = rangeCtx;
+      const fuel = nm * r.lpnm, okOne = nm <= r.oneWay, okRound = nm <= r.round;
+      $('#range-route').innerHTML = `<div class="card"><div class="cardhead"><div><div class="sub">Route ${area === 'water' ? 'over open water' : 'along fairways'}</div><div class="num" style="font-size:24px">${f(nm)} NM</div></div>
+        <div style="text-align:right"><div class="sub">Fuel at ${f(kn)} kn</div><div class="num" style="font-size:20px">${fi(fuel)} L one way · ${fi(2 * fuel)} L back</div></div></div>
+        <div class="sub" style="color:${okRound ? '#1F6E5A' : okOne ? '#B8470F' : '#A63A2A'};font-weight:600">${okRound ? 'Enough fuel there and back, with reserve.' : okOne ? 'Enough one way only — refuel there.' : 'Not enough fuel to get there with the reserve kept.'}</div></div>`;
+    } catch (e) { toast('Route failed: ' + e.message); }
   }
 
+  const seaInfo = (m) => `built ${dstr(Date.parse(m.built))}, depth: ${m.depthSource}, ${m.fairwayEdges} fairway segments, ${f((m.bytes || 0) / 1e6)} MB`;
   // MORE / SETTINGS
   R.more = () => {
     const s = S().settings;
@@ -586,11 +638,17 @@
         <div class="field"><label for="rpmstep">RPM rounding</label><div class="inbox"><input id="rpmstep" inputmode="decimal" value="${s.rpmStep}" data-act="setnum" data-k="rpmStep"><span>rpm</span></div></div>
         <div class="field"><label for="reserve">Reserve<small>% of usable capacity (above suction pipe)</small></label><div class="inbox"><input id="reserve" inputmode="decimal" value="${s.reservePct}" data-act="setnum" data-k="reservePct"><span>%</span></div></div>
       </div>
+      <div class="card"><div class="cardhead"><div class="h">Sea data for range</div></div>
+        <div class="sub">Land, depth and fairways for Suomenlahti and Saaristomeri, built by the "Build sea data" workflow in your GitHub repository. Download once on Wi-Fi; it then works offline.</div>
+        <div class="field"><label for="draft">Draft limit<small>avoid water shallower than this</small></label><div class="inbox"><input id="draft" inputmode="decimal" value="${s.draftM}" data-act="setnum" data-k="draftM"><span>m</span></div></div>
+        <button class="btn small" data-act="sea-download">Download / update sea data</button>
+        <div class="sub" id="sea-out">${Sea.meta ? 'Loaded: ' + seaInfo(Sea.meta) : 'Not downloaded yet.'}</div>
+      </div>
       <div class="card"><div class="cardhead"><div class="h">Backup</div></div>
         <div class="sub">All data lives on this phone only. Export a backup now and then (also before reinstalling).</div>
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
-      <div class="note">Version 2 · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 3 · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -764,6 +822,13 @@
     'range-mode': (el) => { rangeMode = el.dataset.m; renderRange(); },
     'range-speed': (el) => { rangeSpeed = el.dataset.s; renderRange(); },
     'range-eng': (el) => { rangeEng = el.dataset.m; renderRange(); },
+    'range-area': (el) => { S().settings.rangeArea = el.dataset.a; Core.save(); renderRange(); },
+    'sea-download': async () => {
+      const out = $('#sea-out'), btn = $('[data-act=sea-download]'); btn.disabled = true;
+      try { const m = await Sea.download(S().settings.seaUrl || 'sea/', (t) => { out.textContent = t; }); out.textContent = 'Ready: ' + seaInfo(m); toast('Sea data ready'); }
+      catch (e) { out.textContent = 'Failed: ' + e.message; }
+      btn.disabled = false;
+    },
     'base': (el) => { S().settings.base = el.dataset.b; if (el.dataset.b === 'nls' && !S().settings.nlsKey) toast('Add your NLS API key below; until then OSM is shown.'); Core.save(); refreshBaseLayers(); R.more(); },
     'detect': detectTraficom,
     'offline': saveOffline,
@@ -797,7 +862,7 @@
     if (act === 'nlskey') { s.nlsKey = el.value.trim(); Core.save(); refreshBaseLayers(); }
     if (act === 'setnum') {
       const v = Core.num(el.value), k = el.dataset.k;
-      const ok = { reservePct: v >= 0 && v < 90, minCruiseKn: v >= 1 && v <= 20, effMarginPct: v >= 0 && v <= 100, rpmStep: v >= 1 && v <= 500 }[k];
+      const ok = { reservePct: v >= 0 && v < 90, minCruiseKn: v >= 1 && v <= 20, effMarginPct: v >= 0 && v <= 100, rpmStep: v >= 1 && v <= 500, draftM: v >= 0 && v <= 10 }[k];
       if (ok) { s[k] = v; Core.save(); toast('Saved'); } else { toast('Value out of range'); el.value = s[k]; }
     }
     if (act === 'import' && el.files[0]) {
@@ -808,6 +873,7 @@
 
   // ---------- start ----------
   Core.init().then(() => {
+    Sea.init();
     go('helm');
     Core.resumeIfActive();
     if (!S().active && 'geolocation' in navigator) {
@@ -815,5 +881,5 @@
     }
   });
   if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
-  window.FuelLogDebug = { go, Core, proposalSheet };
+  window.FuelLogDebug = { go, Core, Sea, proposalSheet };
 })();

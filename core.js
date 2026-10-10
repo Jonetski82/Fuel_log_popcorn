@@ -72,7 +72,7 @@ const Core = (() => {
         reservePct: 15, minCruiseKn: 6, effMarginPct: 10,
         base: 'traficom', seamarks: true,
         traficomLayer: 'Traficom:Merikarttasarjat public', traficomMatrix: 'WGS84_Pseudo-Mercator:', traficomFormat: 'image/png', traficomCustom: '',
-        nlsKey: '', price: '', rpmStep: 50
+        nlsKey: '', price: '', rpmStep: 50, draftM: 2.0, rangeArea: 'water', seaUrl: 'sea/'
       },
       curve: { unit: 'mm', base: samplePoly(395, 600), sample: true, active: zeroCorr(), history: [], pending: null },
       tanks: [
@@ -604,6 +604,6 @@ const Core = (() => {
     addDip, addRefuel, deleteEvent, addAnchor, deleteAnchor,
     seasonTable, cleanKnAt, rpmFor, hullStatus, addCleaning,
     startTrip, stopTrip, setPaused, setMode, setRpm, resumeIfActive, activeTrack, trackGet, deleteTrip,
-    exportAll, importAll, _onFix: (p) => onFix(p)
+    exportAll, importAll, kvGet, kvSet, _onFix: (p) => onFix(p)
   };
 })();

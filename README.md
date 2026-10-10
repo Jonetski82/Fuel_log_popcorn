@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 2)
+# Popcorn Fuel Log (PWA, version 3)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -42,3 +42,27 @@ Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed
 - **Data lives only on the phone.** Export backups regularly.
 
 Map data: © Traficom (CC BY 4.0), © OpenStreetMap contributors, seamarks © OpenSeaMap, © Maanmittauslaitos. Leaflet 1.9.4 (BSD-2).
+
+
+---
+
+## Merialue- ja väylärange (versio 3) – käyttöönotto
+
+Range-näkymässä on nyt kolme tilaa: **Open water** (vapaa vesi, kiertää maan ja asetettua syväysrajaa matalammat alueet), **Fairways** (vain merkittyjä väyliä pitkin) ja **Circle** (suoraviivainen ympyrä). Napauttamalla karttaa saat reitin, matkan ja polttoainetarpeen.
+
+Aineisto (Suomenlahti + Saaristomeri) rakennetaan kerran GitHubissa:
+
+1. Varmista, että repositoryssa on kansiot `.github/workflows/` ja `tools/` tästä zipistä.
+   - Jos `.github`-kansio ei näy tai siirry selaimeen raahatessa (piilokansio), valitse GitHubissa **Add file → Create new file**, kirjoita nimeksi `.github/workflows/build-sea-data.yml` ja liitä tiedoston sisältö.
+2. Avaa repositoryn **Actions**-välilehti ja hyväksy työnkulut, jos GitHub kysyy.
+3. Valitse vasemmalta **Build sea data** → **Run workflow** → **Run workflow**.
+4. Odota, kunnes ajo on vihreä (noin 10–20 min). Se lisää kansion `sea/` repositoryyn ja GitHub Pages julkaisee sen.
+   - Jos ajo epäonnistuu, avaa ajo, kopioi punaisen vaiheen loki ja lähetä se Claudelle.
+   - Jos virhe koskee oikeuksia (push), mene **Settings → Actions → General → Workflow permissions** → valitse **Read and write permissions** → Save, ja aja uudelleen.
+5. Puhelimessa: **More → Sea data for range → Download / update sea data** (wifissä). Aseta samalla **Draft limit** (syväysraja).
+
+**Syvyystiedot:** oletuksena käytetään EMODnet-syvyysmallia (noin 115 m ruudut, karkea rannikon lähellä). Tarkemmat Traficomin syvyysalueet saat näin: lataa ne Traficomin karttapalvelusta (https://julkinen.traficom.fi/oskari/) shapefile-muodossa, lisää zip-tiedosto repositoryyn kansioon `sea-src/traficom/` ja aja **Build sea data** uudelleen. Skripti käyttää kenttää `DRVAL1` (syvyysalueen pienin syvyys).
+
+**Rajoitukset:** 100 m ruudukko – kapeat salmet voivat sulkeutua tai aueta väärin. Väylätila käyttää Väyläviraston navigointilinjoja (mitoitus-/haraussyvyys). Suunnitteluapu, ei navigointiin.
+
+Aineistot: maa © OpenStreetMap contributors (ODbL), väylät © Väylävirasto (CC BY 4.0), syvyys © EMODnet Bathymetry tai © Traficom (CC BY 4.0).
