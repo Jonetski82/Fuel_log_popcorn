@@ -1,0 +1,19 @@
+{
+ "version": 1,
+ "x0": 2159400.0,
+ "y1": 8626000.0,
+ "cell": 200.0,
+ "W": 4788,
+ "H": 2012,
+ "bbox": [
+  19.4,
+  59.2,
+  28.0,
+  61.0
+ ],
+ "built": "2026-10-10T12:05:09Z",
+ "depthSource": "EMODnet Bathymetry DTM",
+ "fairwayLines": 6464,
+ "fairwayEdges": 20782,
+ "attribution": "Land \u00a9 OpenStreetMap contributors (ODbL); depth: EMODnet Bathymetry DTM; fairways \u00a9 V\u00e4yl\u00e4virasto (CC BY 4.0)"
+}
