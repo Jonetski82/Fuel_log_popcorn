@@ -1,5 +1,5 @@
 // Service worker: app shell offline + map tile cache.
-const APP_CACHE = 'fuellog-app-v4';
+const APP_CACHE = 'fuellog-app-v5';
 const TILE_CACHE = 'fuellog-tiles-v1';
 const APP_FILES = [
   './', './index.html', './styles.css', './core.js', './sea.js', './sea-worker.js', './app.js', './manifest.webmanifest',
@@ -11,7 +11,7 @@ const APP_FILES = [
 const TILE_HOSTS = ['julkinen.traficom.fi', 'tile.openstreetmap.org', 'tiles.openseamap.org', 'avoin-karttakuva.maanmittauslaitos.fi'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(APP_CACHE).then((c) => c.addAll(APP_FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(APP_CACHE).then((c) => c.addAll(APP_FILES.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -59,7 +59,7 @@ self.addEventListener('fetch', (e) => {
   // App shell: network first (so updates arrive), fall back to cache offline.
   if (url.origin === self.location.origin) {
     e.respondWith(
-      fetch(e.request).then((res) => {
+      fetch(e.request, { cache: 'no-cache' }).then((res) => {
         const copy = res.clone();
         caches.open(APP_CACHE).then((c) => c.put(e.request, copy));
         return res;

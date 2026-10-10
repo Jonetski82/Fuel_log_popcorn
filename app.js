@@ -667,7 +667,8 @@
         <div class="sub">All data lives on this phone only. Export a backup now and then (also before reinstalling).</div>
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
-      <div class="note">Version 3.1 · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
+      <div class="note">Version 3.2 · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -841,6 +842,14 @@
     'range-mode': (el) => { rangeMode = el.dataset.m; renderRange(); },
     'range-speed': (el) => { rangeSpeed = el.dataset.s; renderRange(); },
     'range-eng': (el) => { rangeEng = el.dataset.m; renderRange(); },
+    'check-update': async () => {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) await reg.update();
+        toast('Checking… the app reloads if a new version is found');
+        setTimeout(() => location.reload(), 2500);
+      } catch (e) { toast('Update check failed: ' + e.message); }
+    },
     'range-start-here': () => { if (lastTap) setRangeStart(lastTap.lat, lastTap.lng); },
     'range-start-gps': () => { S().settings.rangeStart = null; Core.save(); toast('Start from the boat GPS position'); renderRange(); },
     'range-area': (el) => { S().settings.rangeArea = el.dataset.a; Core.save(); renderRange(); },
@@ -901,6 +910,12 @@
       navigator.geolocation.getCurrentPosition((p) => { Core.live.fix = { lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now(), heading: 0 }; Core.live.acc = p.coords.accuracy; updateHelmLive(); }, () => {}, { enableHighAccuracy: true, timeout: 20000 });
     }
   });
-  if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  if ('serviceWorker' in navigator) {
+    // reload once when a new version takes over, so updates show up without manual tricks
+    let reloaded = false;
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded && !(S() && S().active)) { reloaded = true; location.reload(); } });
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => reg.update()).catch(() => {}));
+  }
   window.FuelLogDebug = { go, Core, Sea, proposalSheet };
 })();
