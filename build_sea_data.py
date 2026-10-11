@@ -26,6 +26,7 @@ CELL = 200.0                                  # Web Mercator metres (~100 m true
 FAIRWAY_WFS = 'https://avoinapi.vaylapilvi.fi/vaylatiedot/wfs'
 FAIRWAY_LAYERS = ['vesivaylatiedot:navigointilinjat_uusi', 'vesivaylatiedot:navigointilinjat_muut_vaylanpitajat']
 EMODNET_WCS = 'https://ows.emodnet-bathymetry.eu/wcs'
+OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']
 
 
 def log(*a):
@@ -322,6 +323,53 @@ def build_graph(lines, snap_m=5.0):
     return {'nodes': flat_nodes, 'edges': flat_edges}
 
 
+# ---------------------------------------------------------------- fuel stations (OpenStreetMap)
+def fetch_fuel(bbox):
+    import requests
+    lon0, lat0, lon1, lat1 = bbox
+    b = f'({lat0},{lon0},{lat1},{lon1})'
+    q = f'''[out:json][timeout:180];
+(
+  nwr["waterway"="fuel"]{b};
+  nwr["seamark:small_craft_facility:category"~"fuel"]{b};
+  nwr["seamark:type"="small_craft_facility"]["seamark:small_craft_facility:category"~"fuel"]{b};
+  nwr["amenity"="fuel"]["boat"="yes"]{b};
+  nwr["amenity"="fuel"]["fuel:marine_diesel"]{b};
+);
+out center tags;'''
+    last = None
+    for url in OVERPASS:
+        try:
+            r = requests.post(url, data={'data': q}, timeout=300, headers={'User-Agent': 'popcorn-fuel-log/1 (personal boating app)'})
+            r.raise_for_status()
+            return r.json().get('elements', [])
+        except Exception as e:  # try the next mirror
+            last = e
+            log(f'Overpass {url} failed: {e}')
+    raise last
+
+
+def stations_from_elements(els):
+    out, seen = [], set()
+    for e in els:
+        lat = e.get('lat', (e.get('center') or {}).get('lat'))
+        lon = e.get('lon', (e.get('center') or {}).get('lon'))
+        if lat is None or lon is None:
+            continue
+        key = (round(lat, 4), round(lon, 4))
+        if key in seen:
+            continue
+        seen.add(key)
+        t = e.get('tags', {})
+        fuels = sorted(k[5:] for k, v in t.items() if k.startswith('fuel:') and v not in ('no', ''))
+        name = t.get('name') or t.get('seamark:name') or t.get('brand') or t.get('operator') or 'Fuel station'
+        out.append({'id': f"osm:{e['type'][0]}{e['id']}", 'lat': round(lat, 6), 'lon': round(lon, 6), 'name': name,
+                    'operator': t.get('operator') or t.get('brand') or '', 'fuels': fuels,
+                    'hours': t.get('opening_hours', ''), 'phone': t.get('phone') or t.get('contact:phone') or '',
+                    'website': t.get('website') or t.get('contact:website') or ''})
+    return out
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
@@ -333,6 +381,7 @@ def main():
     ap.add_argument('--depth-geojson', help='(testing) depth polygons as GeoJSON with DRVAL1')
     ap.add_argument('--no-emodnet', action='store_true')
     ap.add_argument('--fairways-geojson', help='(testing / offline) fairway lines as GeoJSON instead of the WFS')
+    ap.add_argument('--fuel-json', help='(testing / offline) Overpass JSON instead of querying Overpass')
     ap.add_argument('--out', default='sea')
     a = ap.parse_args()
 
@@ -389,14 +438,29 @@ def main():
     graph = build_graph(lines)
     log(f'fairways: {len(lines)} lines, {len(graph["nodes"]) // 2} nodes, {len(graph["edges"]) // 4} edges')
 
+    # fuel stations
+    try:
+        if a.fuel_json:
+            with open(a.fuel_json) as f:
+                els = json.load(f).get('elements', [])
+        else:
+            els = fetch_fuel(bbox)
+        stations = stations_from_elements(els)
+    except Exception as e:
+        log('fuel stations failed (continuing without):', e)
+        stations = []
+    log(f'fuel stations: {len(stations)}')
+
     os.makedirs(a.out, exist_ok=True)
+    with open(os.path.join(a.out, 'fuel.json'), 'w') as f:
+        json.dump({'built': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'source': 'OpenStreetMap contributors (ODbL)', 'stations': stations}, f, ensure_ascii=False, separators=(',', ':'))
     with gzip.open(os.path.join(a.out, 'grid.bin.gz'), 'wb', compresslevel=9) as f:
         f.write(depth.tobytes())
     with gzip.open(os.path.join(a.out, 'fairways.json.gz'), 'wt', compresslevel=9) as f:
         json.dump(graph, f, separators=(',', ':'))
     meta = {'version': 1, 'x0': grid.x0, 'y1': grid.y1, 'cell': grid.cell, 'W': grid.W, 'H': grid.H,
             'bbox': bbox, 'built': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'depthSource': depth_src,
-            'fairwayLines': len(lines), 'fairwayEdges': len(graph['edges']) // 4,
+            'fairwayLines': len(lines), 'fairwayEdges': len(graph['edges']) // 4, 'fuelStations': len(stations),
             'attribution': 'Land © OpenStreetMap contributors (ODbL); depth: ' + depth_src + '; fairways © Väylävirasto (CC BY 4.0)'}
     with open(os.path.join(a.out, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=1)

@@ -305,7 +305,12 @@ const I18N = (() => {
     '{n} s.': '{n} s.', 'Tap the map for a route.': 'Napauta karttaa nähdäksesi reitin.', 'below {n} cm': 'alle {n} cm', 'below {n} mm': 'alle {n} mm', 'dip {n} cm': 'mittaus {n} cm', 'dip {n} mm': 'mittaus {n} mm',
     '{n} NM over open water': '{n} NM avovettä pitkin', '{n} NM along fairways': '{n} NM väyliä pitkin', '{n} NM straight line': '{n} NM suoraan', '{n} L at {n} kn': '{n} L {n} kn:ssa',
     'used {n} L since {n}': 'kulunut {n} L {n} jälkeen', 'below pipe': 'imuputken alla', 'brim: {n} L': 'piripinta: {n} L',
-    'dip': 'mittaus', 'refuel +{n} L': 'tankkaus +{n} L', 'refuel +{n} L (brim)': 'tankkaus +{n} L (piripintaan)', '(brim)': '(piripintaan)'
+    'dip': 'mittaus', 'refuel +{n} L': 'tankkaus +{n} L', 'refuel +{n} L (brim)': 'tankkaus +{n} L (piripintaan)', '(brim)': '(piripintaan)',
+    // ---- v5.0 consistency pass ----
+    'From known points': 'Tunnetuista pisteistä', 'Engines': 'Koneet', 'Load': 'Kuorma', 'RPM': 'RPM', 'Area': 'Alue',
+    '{n} kn (now)': '{n} kn (nyt)', '{n} kn (economy)': '{n} kn (taloudellisin)', 'Hide': 'Piilota', 'Show {n}': 'Näytä {n}',
+    'Show chart': 'Näytä kuvaaja', 'Hide chart': 'Piilota kuvaaja', 'Delete dip': 'Poista mittaus', 'Delete both': 'Poista molemmat',
+    'Fitted to {n} readings ({n} refuels). It stays close to your base curve except where the refuels disagree.': 'Sovitettu {n} lukemaan ({n} tankkausta). Pysyy lähellä pohjakäyrää paitsi siellä, missä tankkaukset ovat eri mieltä.'
   };
 
   // name-carrying texts (tank / station names stay as they are)

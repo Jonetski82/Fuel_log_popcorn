@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 4.9.1)
+# Popcorn Fuel Log (PWA, version 5.0)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -147,3 +147,12 @@ Tankit → Tilavuussovite:
 - Tankit-sivu ei enää jää tyhjäksi, jos tankfit.js puuttuu; sivu kertoo puuttuvasta tiedostosta.
 - Sovite-ehdotukset lasketaan sivun avauduttua ja tallennetaan, joten Tankit-sivu avautuu heti.
 - Jos jokin näkymä kaatuu, virhe näytetään ruudulla.
+
+## Versio 5.0 – johdonmukaisuus ja helppokäyttöisyys
+
+- Ruori (matkalla): Koneet / RPM / Kuorma ovat kolme samankokoista painiketta (otsikko + arvo), eivät enää rivity.
+- Mittaus ennen lähtöä: Ohita ja Tallenna & aloita vievät aina Ruoriin.
+- Loki: saman hetken Port- ja Stbd-mittaukset yhdellä rivillä; listoissa 10 uusinta + Näytä kaikki; tankkausrivillä ei tyhjää "–" lähdettä.
+- Tankit: merkityksetön käyräehdotus (virhe ei pienene) piilotetaan; Aiemmat käyrät kootaan sivun loppuun avattavaksi; ehdotusten kuvaaja avataan painikkeella.
+- Kantama: vastaus ja kartta ensin, asetukset (Koneet, Nopeus, Matka, Alue, Lähtö) kartan alla yhdessä kortissa.
+- Kaikissa numerokentissä desimaalipilkku suomeksi; puuttuvat käännökset lisätty; "Lisää matka käsin" samalla nimellä kaikkialla.

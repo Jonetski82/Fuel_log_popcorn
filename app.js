@@ -6,6 +6,7 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const f = (x, d = 1) => (isFinite(x) ? dec(Number(x).toFixed(d)) : '–');
   const dec = (s) => (typeof I18N !== 'undefined' && I18N.lang === 'fi' ? s.replace('.', ',') : s);   // Finnish decimal comma
+  const dv = (x) => (x !== null && x !== undefined && isFinite(x) ? dec(String(x)) : '');   // number into an input, with the decimal comma
   const fi = (x) => (isFinite(x) ? Math.round(x).toString() : '–');
   const pm = (x, d = 0) => (isFinite(x) ? (x >= 0 ? '+' : '−') + dec(Math.abs(x).toFixed(d)) : '–');
   const dur = (h) => { if (!isFinite(h)) return '–'; const m = Math.round(h * 60); return m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min'; };
@@ -26,6 +27,7 @@
   const whenField = (id, t) => `<div class="field"><label for="${id}">When<small>change if you log it afterwards</small></label><div class="inbox wide" style="width:58%"><input type="datetime-local" id="${id}" value="${localInput(t || Date.now())}"></div></div>`;
   const rs = (mm) => (isFinite(mm) ? rn(mm) + ' ' + RUL() : '–');
   const MODE_LABEL = { both: 'Both engines', port: 'Port only', stbd: 'Stbd only' };
+  const MODE_SHORT = { both: 'Both', port: 'Port only', stbd: 'Stbd only' };
   const LOAD_LABEL = { light: 'Light', normal: 'Normal', full: 'Full' };
   const LOAD_HINT = { light: '2–3 people, little water and gear', normal: '4–5 people or half water tank, usual gear', full: '6 people, luggage, full water tank' };
 
@@ -142,7 +144,7 @@
     return `<div class="grid2" style="padding-top:10px">
       <div class="tile dark"><div class="lbl">Most economical</div><div class="num mid">${f(e.best.kn)} kn</div><div class="hint">${isFinite(e.best.rpm) ? e.best.rpm + ' rpm · ' : ''}${f(e.best.lpnm)} L/NM</div></div>
       <div class="tile"><div class="lbl">Efficient cruise</div><div class="num mid">${f(e.efficient.kn)} kn</div><div class="hint">${e.efficient.kn === e.best.kn ? 'same — every faster speed costs over +' + S().settings.effMarginPct + '% per NM' : (isFinite(e.efficient.rpm) ? e.efficient.rpm + ' rpm · ' : '') + f(e.efficient.lpnm) + ' L/NM (≤ +' + S().settings.effMarginPct + '%)'}</div></div></div>
-      <div class="note">${e.fromData ? 'From your logged trips' : 'Starting guess until you have trips with dips'} · cruising from ${S().settings.minCruiseKn} kn${src}.</div>`;
+      <div class="note">${e.fromData ? 'From your logged trips' : 'Starting guess until you have trips with dips'} · cruising from ${f(S().settings.minCruiseKn)} kn${src}.</div>`;
   }
   const roughBox = (id) => `<div class="check"><input type="checkbox" id="${id}"><label for="${id}">Rough dip (heel, waves, poor trim) — counts less</label></div>`;
 
@@ -181,7 +183,7 @@
         <div class="tile"><div class="lbl">Used, est.</div><div class="val"><span class="num mid" id="h-used">${A ? fi(Core.tripFuelTotal(A)) : '–'}</span><span class="unit">L</span></div><div class="hint" id="h-used-split"></div></div>
       </div>`;
     $('#helm-dyn').innerHTML = A ? `${warn}
-      <div class="btnrow" style="padding-top:10px"><button class="btn small grow" data-act="mode-sheet"><b id="h-mode">${MODE_LABEL[A.mode]}</b></button><button class="btn small grow dark" data-act="rpm-sheet">RPM&nbsp;<b id="h-rpm">${A.rpm || 'set'}</b></button><button class="btn small" data-act="load-sheet">${'Load: ' + LOAD_LABEL[A.load || 'normal']}</button></div>
+      <div class="ctl3"><button class="ctl" data-act="mode-sheet"><span>Engines</span><b id="h-mode">${MODE_SHORT[A.mode]}</b></button><button class="ctl dark" data-act="rpm-sheet"><span>RPM</span><b id="h-rpm">${A.rpm || 'set'}</b></button><button class="ctl" data-act="load-sheet"><span>Load</span><b>${LOAD_LABEL[A.load || 'normal']}</b></button></div>
       ${tiles}
       <div class="card" style="gap:4px">${ecoHtml(true)}</div>
       ${tankBars()}
@@ -205,7 +207,7 @@
     if (A) {
       set('h-dist', f(A.distNm)); set('h-used', fi(Core.tripFuelTotal(A)));
       set('h-used-split', 'P ' + fi(Core.tripFuel(A, 'port')) + ' · S ' + fi(Core.tripFuel(A, 'stbd')) + ' L');
-      set('h-mode', MODE_LABEL[A.mode]); set('h-rpm', A.rpm || 'set');
+      set('h-mode', MODE_SHORT[A.mode]); set('h-rpm', A.rpm || 'set');
     }
     $('#helm-sub').textContent = A ? 'Trip ' + clock(Date.now() - A.start) + (A.paused ? ' · paused' : '') : 'Ready — start a trip to log it';
     $('#helm-pill').innerHTML = A ? (A.paused ? '<span class="dot"></span>Paused' : '<span class="dot rec"></span>Recording') : (lv.fix ? '<span class="dot"></span>GPS ' + fi(lv.acc) + ' m' : '<span class="dot"></span>GPS idle');
@@ -243,7 +245,7 @@
       <div class="card"><div class="cardhead"><div class="h">Time at speed</div><div class="sub">${(tr.samples || []).length} RPM stretches</div></div>${bandsHtml(bb)}<div class="sub">${modeTimes(bb)}</div></div>
       <div class="card"><div class="cardhead"><div class="h">Dip tanks with ruler</div><div class="sub">est. used P ${fi(Core.tripFuel(tr, 'port'))} · S ${fi(Core.tripFuel(tr, 'stbd'))} L</div></div>
         ${S().tanks.map((t) => `<div class="field"><label for="dip-${t.id}" style="color:${t.color};font-weight:600;flex:0 0 48px">${esc(t.name)}</label>
-          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}" placeholder="${RUL()}"><span>${RUL()}</span></div>
+          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}"><span>${RUL()}</span></div>
           <div style="flex:1;text-align:right"><div class="num" style="font-size:20px" id="dipL-${t.id}">– L</div><div class="sub" id="dipU-${t.id}"></div></div></div>`).join('')}
         ${roughBox('dip-rough')}
         <div id="dip-sum"></div>
@@ -258,7 +260,7 @@
       <div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Dip before departure</div><div class="sub">${dtstr(Date.now())}</div></div></div>
       <div class="card"><div class="cardhead"><div class="h">Dip tanks with ruler</div></div>
         ${S().tanks.map((t) => `<div class="field"><label for="dip-${t.id}" style="color:${t.color};font-weight:600;flex:0 0 48px">${esc(t.name)}</label>
-          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}" placeholder="${RUL()}"><span>${RUL()}</span></div>
+          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}"><span>${RUL()}</span></div>
           <div style="flex:1;text-align:right"><div class="num" style="font-size:20px" id="dipL-${t.id}">– L</div><div class="sub" id="dipU-${t.id}"></div></div></div>`).join('')}
         ${roughBox('dip-rough')}
         <div id="dip-sum"></div>
@@ -293,7 +295,7 @@
   R.trips = async () => {
     const v = $('#v-trips'), s = S();
     if (!tripsBuilt) {
-      v.innerHTML = `<div class="top"><div><div class="title">Trips</div><div class="sub" id="trips-sub"></div></div><button class="btn small" data-act="manual-new">Add trip</button></div>
+      v.innerHTML = `<div class="top"><div><div class="title">Trips</div><div class="sub" id="trips-sub"></div></div><button class="btn small" data-act="manual-new">Add trip by hand</button></div>
         <div class="mapbox" style="height:38vh;min-height:220px"><div id="map-trips" class="map"></div><div class="maplegend" id="trips-legend" style="top:10px;bottom:auto"></div></div>
         <div id="trips-dyn"></div>`;
       getMap('trips'); tripsBuilt = true;
@@ -446,7 +448,7 @@
       <div class="seg" style="margin-top:10px"><button class="${nm ? 'on' : ''}" data-act="metric" data-m="nm">Litres per NM</button><button class="${nm ? '' : 'on'}" data-act="metric" data-m="h">Litres per hour</button></div>
       ${fit.nIntervals === 0 ? '<div class="warn">This is a starting guess, not your boat yet. It becomes your curve after a few trips with tank dips before and after.</div>' : ''}
       <div class="card" style="padding:12px 6px 8px 2px">${chart}
-        <div class="sub" style="padding-left:30px">${mode === 'both' ? '<b style="color:#13212F">Total</b> · <b style="color:#A63A2A">port</b> · <b style="color:#1F6E5A">stbd</b> · ' : ''}shaded = uncertainty · dot size = hours · grey line = cruising from ${S().settings.minCruiseKn} kn</div>
+        <div class="sub" style="padding-left:30px">${mode === 'both' ? '<b style="color:#13212F">Total</b> · <b style="color:#A63A2A">port</b> · <b style="color:#1F6E5A">stbd</b> · ' : ''}shaded = uncertainty · dot size = hours · grey line = cruising from ${f(S().settings.minCruiseKn)} kn</div>
       </div>
       ${mode === 'both' ? ecoHtml(false) : ''}
       ${mode === 'both' ? condHtml() + accuracyHtml() : ''}
@@ -517,7 +519,7 @@
         ${st.length ? st.map((r) => `<div class="tr" style="grid-template-columns:1fr 1fr 1fr 1fr .6fr"><div>${r.rpm}</div><div>${f(r.kn)} kn</div><div>${f(r.clean)} kn</div><div>${isFinite(r.clean) ? f(((r.clean - r.kn) / r.clean) * 100) + '%' : '–'}</div><div>${r.n}</div></div>`).join('') : '<div class="sub" style="padding:6px 0">Nothing logged yet.</div>'}
       </div></div>
       <div class="card"><div class="cardhead"><div class="h">Clean-hull table</div><div class="sub">${s.hull.cleanSample ? 'sample values' : 'your values'}</div></div>
-        ${s.hull.clean.map((r, i) => `<div class="field"><div class="inbox"><input inputmode="decimal" id="ch-r${i}" value="${isFinite(r[0]) ? r[0] : ''}" aria-label="RPM row ${i + 1}"><span>rpm</span></div><div class="inbox"><input inputmode="decimal" id="ch-k${i}" value="${isFinite(r[1]) ? r[1] : ''}" aria-label="Speed row ${i + 1}"><span>kn</span></div><button class="iconbtn" aria-label="Delete row" data-act="ch-del" data-i="${i}">${IC.x}</button></div>`).join('')}
+        ${s.hull.clean.map((r, i) => `<div class="field"><div class="inbox"><input inputmode="decimal" id="ch-r${i}" value="${dv(r[0])}" aria-label="RPM row ${i + 1}"><span>rpm</span></div><div class="inbox"><input inputmode="decimal" id="ch-k${i}" value="${dv(r[1])}" aria-label="Speed row ${i + 1}"><span>kn</span></div><button class="iconbtn" aria-label="Delete row" data-act="ch-del" data-i="${i}">${IC.x}</button></div>`).join('')}
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="ch-add">Add row</button><button class="btn small primary" data-act="ch-save">Save table</button></div>
         <div class="sub">Speed with a clean hull, both engines, calm water. Enter at the start of the season.</div>
       </div>
@@ -541,8 +543,20 @@
     });
     return [...by.values()].sort((x, y) => y.t - x.t);
   }
-  const srcText = (src) => (!src ? '–' : src.type === 'canister' ? 'Canister' : (src.name || 'Fuel station'));
-  const dipRows = (from, to) => S().events.filter((e) => e.type === 'dip' && e.t >= from && e.t < to).sort((x, y) => y.t - x.t);
+  const srcText = (src) => (!src ? '' : src.type === 'canister' ? 'Canister' : (src.name || 'Fuel station'));
+  // dips of both tanks taken together form one row
+  const dipRows = (from, to) => {
+    const out = [];
+    S().events.filter((e) => e.type === 'dip' && e.t >= from && e.t < to).sort((x, y) => y.t - x.t).forEach((e) => {
+      const g = out[out.length - 1];
+      if (g && Math.abs(g.t - e.t) < 120000 && !g.list.some((x) => x.tank === e.tank) && Core.dipKind(g.list[0]) === Core.dipKind(e)) g.list.push(e);
+      else out.push({ t: e.t, list: [e] });
+    });
+    out.forEach((g) => g.list.sort((x, y) => (x.tank === 'port' ? -1 : 1)));
+    return out;
+  };
+  const LOG_N = 10;
+  let logAll = { refuel: false, dip: false };
   R.log = () => {
     const [from, to] = logRange(), s = S(), sm = Core.summary(from, to);
     const years = Core.seasons(), thisYear = new Date().getFullYear();
@@ -563,11 +577,13 @@
       </div>
       <div class="card" style="gap:0"><div class="cardhead"><div class="h">Refuel log</div><div class="sub">${groups.length} refuels</div></div>
         <div class="sub" style="padding-bottom:6px">${name('port')} ${fi(sm.port.bought)} L · ${fi(sm.port.eur)} € · ${name('stbd')} ${fi(sm.stbd.bought)} L · ${fi(sm.stbd.eur)} € · Total ${fi(sm.boat.bought)} L · ${fi(sm.boat.eur)} €</div>
-        ${groups.length ? groups.map((g) => { const L = g.port + g.stbd, pr = isFinite(g.price) && g.price > 0; return `<div class="logrow"><div class="main"><b>${dstr(g.t)} · ${esc(srcText(g.src))}</b><span>P ${fi(g.port)} L · S ${fi(g.stbd)} L${pr ? ' · ' + f(g.price, 3) + ' €/L' : ''}</span></div><div class="right"><span class="num">${fi(L)} L</span><span>${pr ? f(L * g.price, 2) + ' €' : 'no price'}</span></div><button class="iconbtn" aria-label="Delete refuel" data-act="del-refuel" data-k="${g.key}">${IC.x}</button></div>`; }).join('') : '<div class="sub">No refuels in this period.</div>'}
+        ${groups.length ? (logAll.refuel ? groups : groups.slice(0, LOG_N)).map((g) => { const L = g.port + g.stbd, pr = isFinite(g.price) && g.price > 0; return `<div class="logrow"><div class="main"><b>${dstr(g.t)}${srcText(g.src) ? ' · ' + esc(srcText(g.src)) : ''}</b><span>${['port', 'stbd'].filter((k) => g[k] > 0.5).map((k) => name(k) + ' ' + fi(g[k]) + ' L').join(' · ') || '0 L'}${pr ? ' · ' + f(g.price, 3) + ' €/L' : ''}</span></div><div class="right"><span class="num">${fi(L)} L</span><span>${pr ? f(L * g.price, 2) + ' €' : 'no price'}</span></div><button class="iconbtn" aria-label="Delete refuel" data-act="del-refuel" data-k="${g.key}">${IC.x}</button></div>`; }).join('') : '<div class="sub">No refuels in this period.</div>'}
+        ${groups.length > LOG_N ? `<div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="log-all" data-k="refuel">${logAll.refuel ? 'Show fewer' : 'Show all ' + groups.length}</button></div>` : ''}
         <div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow primary" data-act="go" data-v="refuel">Log refuel</button></div>
       </div>
       <div class="card" style="gap:0"><div class="cardhead"><div class="h">Dip log</div><div class="sub">${dips.length} dips</div></div>
-        ${dips.length ? dips.map((e) => `<div class="logrow"><div class="main"><b>${dtstr(e.t)} · ${name(e.tank)}</b><span>${KIND_LABEL[Core.dipKind(e)]}${e.rough ? ' · rough' : ''}</span></div><div class="right"><span class="num">${rs(e.mm)}</span><span>${fi(Core.litres(Core.tank(e.tank), e.mm))} L</span></div><button class="iconbtn" aria-label="Delete reading" data-act="del-event" data-id="${e.id}">${IC.x}</button></div>`).join('') : '<div class="sub">No dips in this period.</div>'}
+        ${dips.length ? (logAll.dip ? dips : dips.slice(0, LOG_N)).map((g) => `<div class="logrow"><div class="main"><b>${dtstr(g.t)}</b><span>${KIND_LABEL[Core.dipKind(g.list[0])]}${g.list.some((e) => e.rough) ? ' · rough' : ''}</span></div><div class="right">${g.list.map((e) => `<span><span class="num" style="color:${Core.tank(e.tank).color}">${esc(Core.tank(e.tank).name)}</span> <span class="num">${rs(e.mm)}</span> · ${fi(Core.litres(Core.tank(e.tank), e.mm))} L</span>`).join('')}</div><button class="iconbtn" aria-label="Delete reading" data-act="del-dips" data-ids="${g.list.map((e) => e.id).join(',')}">${IC.x}</button></div>`).join('') : '<div class="sub">No dips in this period.</div>'}
+        ${dips.length > LOG_N ? `<div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="log-all" data-k="dip">${logAll.dip ? 'Show fewer' : 'Show all ' + dips.length}</button></div>` : ''}
         <div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow dark" data-act="dip-sheet">Log dip</button></div>
       </div>`;
   };
@@ -620,8 +636,8 @@
       sugHtml = `<div class="cardhead" style="padding-top:10px"><div class="h">Suggested fits</div><div class="sub">${key === 'shared' ? 'both tanks' : esc(t.name) + ' only'}</div></div>
         <div class="sub">Curve in use: ±${f(cur)} L at these points</div>
         ${sugg.slice(0, 3).map((x, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #ECE8DC"><div><b>${x.methods.map((m) => TF_LABEL[m]).join(' + ')}${i === 0 ? ' ★' : ''}</b><div class="sub">${x.bounds.length ? '2 areas · boundary ' + rs(x.bounds[0]) + ' · ' : ''}±${f(x.rms)} L</div></div><button class="btn small ${i === 0 ? 'primary' : ''}" data-act="kp-use" data-k="${key}" data-i="${i}">Use</button></div>`).join('')}
-        <div style="padding:6px 0 0 0">${chart}</div><div class="sub" style="padding-left:30px"><b style="color:#E07A2E">orange = best suggestion</b> · grey = curve in use · dots = known points</div>
-        <div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="go" data-v="tankfit">More options</button></div>`;
+        ${sugChart ? `<div style="padding:6px 0 0 0">${chart}</div><div class="sub" style="padding-left:30px"><b style="color:#E07A2E">orange = best suggestion</b> · grey = curve in use · dots = known points</div>` : ''}
+        <div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="sug-chart">${sugChart ? 'Hide chart' : 'Show chart'}</button><button class="btn small grow" data-act="go" data-v="tankfit">More options</button></div>`;
     } else if (list.length < 2) sugHtml = '<div class="sub" style="padding-top:8px">Add at least two points to get suggested fits.</div>';
     return cardShell(t, rows, list, own, both, sugHtml);
   }
@@ -643,7 +659,7 @@
   }
 
   // TANKS
-  let tankSel = 'port';
+  let tankSel = 'port', histOpen = false, sugChart = false;
   const ZERO = { shared: [0, 0, 0, 0, 0], port: [0, 0, 0, 0, 0], stbd: [0, 0, 0, 0, 0] };
   function curveChart(t, opts = {}) {
     const s = S();
@@ -673,15 +689,15 @@
       <div class="card" style="gap:6px">${tankBar(t)}</div>
       <div class="btnrow"><button class="btn dark grow" data-act="dip-sheet">Log dip</button><button class="btn primary" data-act="go" data-v="refuel">Log refuel</button></div>
       ${kpNotice(t)}
-      ${p ? `<div class="card dark"><div class="cardhead"><div><div class="h">Improved tank curve available</div><div class="sub">From ${p.n} readings · error ${f(p.rmsBefore)} → ${f(p.rmsAfter)} L</div></div><button class="btn small" style="background:#fff;color:#13212F" data-act="proposal">Review</button></div></div>` : ''}
+      ${p && (p.rmsBefore - p.rmsAfter >= 0.2) ? `<div class="card dark"><div class="cardhead"><div><div class="h">Improved tank curve available</div><div class="sub">From ${p.n} readings · error ${f(p.rmsBefore)} → ${f(p.rmsAfter)} L</div></div><button class="btn small" style="background:#fff;color:#13212F" data-act="proposal">Review</button></div></div>` : ''}
       <div class="card" style="padding:12px 6px 10px 2px">
         <div class="cardhead" style="padding-left:10px"><div class="h">Tank curve</div><div class="sub">${eqs.length} readings used</div></div>
         ${curveChart(t)}
         <div class="sub" style="padding-left:30px">grey dashed = base curve (table fit or polynomial) · solid = current curve · black ticks = refuels (before → after) · vertical = suction pipe</div>
         <div class="btnrow" style="padding:6px 10px 0 10px"><button class="btn small grow dark" data-act="go" data-v="tankfit">Volume fit</button><button class="btn small grow" data-act="kp-review">Known points</button></div>
       </div>
-      ${s.curve.history.length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Earlier curves</div></div>${s.curve.history.map((h, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;gap:8px"><span class="sub">${dtstr(h.t)} · ${esc(h.note || '')}</span><button class="btn small" data-act="restore-curve" data-i="${i}">Restore</button></div>`).join('')}</div>` : ''}
       ${knownPointsCard(t)}
+      ${s.curve.history.length ? `<div class="card" style="gap:0"><button class="cardhead fold" data-act="hist-toggle"><span class="h">Earlier curves</span><span class="sub">${histOpen ? 'Hide' : 'Show ' + s.curve.history.length}</span></button>${histOpen ? s.curve.history.map((h, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;gap:8px"><span class="sub">${dtstr(h.t)} · ${esc(h.note || '')}</span><button class="btn small" data-act="restore-curve" data-i="${i}">Restore</button></div>`).join('') : ''}</div>` : ''}
       <div class="btnrow"><button class="btn small grow" data-act="go" data-v="log">Refuel and dip log</button></div>
       ${s.curve.sample ? '<div class="warn">The tank curve is a sample. Tap Volume fit to enter your readings or polynomial, and Edit tank for capacity and suction-pipe height.</div>' : ''}`;
   };
@@ -695,7 +711,7 @@
   }
   function proposalSheet() {
     const p = S().curve.pending; if (!p) return;
-    sheet(`<h3>Improved tank curve</h3><p>Fitted to ${p.n} readings (${p.nRefuel} refuels). It stays close to your polynomial except where the refuels disagree.</p>
+    sheet(`<h3>Improved tank curve</h3><p>Fitted to ${p.n} readings (${p.nRefuel} refuels). It stays close to your base curve except where the refuels disagree.</p>
       <div class="card" style="gap:6px">
         <div class="cardhead"><div class="sub">Error vs readings</div><div class="num" style="font-size:20px">${f(p.rmsBefore)} → ${f(p.rmsAfter)} L</div></div>
         ${S().tanks.map((t) => `<div class="cardhead"><div class="sub" style="color:${t.color};font-weight:600">${esc(t.name)}</div><div style="font-size:14px;text-align:right">moves up to ${f(p.maxShift[t.id])} L · level now ${pm(p.levelChange[t.id], 1)} L${p.ownCurve[t.id] ? ' · <b>own curve</b>' : ''}</div></div>`).join('')}
@@ -832,7 +848,7 @@
           <div class="check"><input type="checkbox" id="rbrim-${t.id}" data-rf="1"><label for="rbrim-${t.id}">${two ? esc(t.name) + ' filled' : 'Filled'} to the brim (= ${fi(t.capacity)} L)</label></div>`).join('')}
         ${roughBox('rf-rough')}
       </div>
-      <div class="card dark" id="rf-check"><div class="sub">Enter the readings to compare them with the tank curve.</div></div>
+      <div class="card" id="rf-check"><div class="sub">Enter the readings to compare them with the tank curve.</div></div>
       <div class="card"><div class="cardhead"><div class="h">Fuel from</div></div>
         <div class="seg" style="margin:0"><button class="${refuelSrc === 'station' ? 'on' : ''}" data-act="refuel-src" data-s="station">Fuel station</button><button class="${refuelSrc === 'canister' ? 'on' : ''}" data-act="refuel-src" data-s="canister">Canister</button></div>
         ${refuelSrc === 'station' ? `<div class="field"><label for="rst">Station<small>optional — pick or type</small></label><div class="inbox wide" style="width:60%"><input id="rst" list="rst-list" value="${esc(refuelStName)}" autocomplete="off"></div></div>
@@ -879,13 +895,17 @@
     const v = $('#v-range');
     if (!rangeBuilt) {
       v.innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Range &amp; fuel stations</div><div class="sub" id="range-sub"></div></div></div>
-        <div class="seg" id="range-seg"></div>
-        <div class="seg" id="range-area" style="margin-top:8px"></div>
-        <div id="range-start"></div>
         <div id="range-dyn"></div>
-        <div class="mapbox" style="height:40vh;min-height:240px;margin-top:8px"><div id="map-range" class="map"></div></div>
+        <div class="mapbox" style="height:40vh;min-height:240px;margin-top:10px"><div id="map-range" class="map"></div></div>
         <div class="note" id="range-status"></div>
         <div id="range-route"></div>
+        <div class="card" id="range-opts" style="gap:10px"><div class="cardhead"><div class="h">Settings</div></div>
+          <div class="optrow"><span class="lbl">Engines</span><div class="chips" id="range-eng"></div></div>
+          <div class="optrow"><span class="lbl">Speed</span><div class="chips" id="range-spd"></div></div>
+          <div class="optrow"><span class="lbl">Distance</span><div class="chips" id="range-seg"></div></div>
+          <div class="optrow"><span class="lbl">Area</span><div class="chips" id="range-area"></div></div>
+          <div class="optrow"><span class="lbl">Start</span><div class="chips" id="range-start"></div></div>
+        </div>
         <div class="note" id="range-note"></div>`;
       getMap('range').on('click', rangeTap).on('contextmenu', (ev) => setRangeStart(ev.latlng.lat, ev.latlng.lng)); rangeBuilt = true;
     }
@@ -899,22 +919,21 @@
     const kn = rangeSpeed === 'eco' ? ecoKn : nowKn, alt = rangeSpeed === 'eco' ? nowKn : ecoKn;
     const r = Core.range(rangeEng, kn), r2 = Core.range(rangeEng, alt);
     $('#range-sub').textContent = s.tanks.map((t) => t.name + ' ' + fi(Core.usable(t.id).usable) + ' L usable').join(' · ');
-    $('#range-seg').innerHTML = `<button class="${rangeMode === 'round' ? 'on' : ''}" data-act="range-mode" data-m="round">Out &amp; back</button><button class="${rangeMode === 'one' ? 'on' : ''}" data-act="range-mode" data-m="one">One way</button>`;
+    $('#range-seg').innerHTML = `<button class="chip ${rangeMode === 'round' ? 'on' : ''}" data-act="range-mode" data-m="round">Out &amp; back</button><button class="chip ${rangeMode === 'one' ? 'on' : ''}" data-act="range-mode" data-m="one">One way</button>`;
     const ar = s.settings.rangeArea;
-    $('#range-area').innerHTML = [['water', 'Open water'], ['fairway', 'Fairways'], ['circle', 'Circle']].map(([k, l]) => `<button class="${ar === k ? 'on' : ''}" data-act="range-area" data-a="${k}">${l}</button>`).join('');
+    $('#range-area').innerHTML = [['water', 'Open water'], ['fairway', 'Fairways'], ['circle', 'Circle']].map(([k, l]) => `<button class="chip ${ar === k ? 'on' : ''}" data-act="range-area" data-a="${k}">${l}</button>`).join('');
     const nmv = (x) => (x ? (rangeMode === 'round' ? x.round : x.oneWay) : NaN);
+    $('#range-eng').innerHTML = Core.MODES.map((m) => `<button class="chip ${m === rangeEng ? 'on' : ''}" data-act="range-eng" data-m="${m}">${MODE_SHORT[m]}</button>`).join('');
+    $('#range-spd').innerHTML = `<button class="chip ${rangeSpeed === 'now' ? 'on' : ''}" data-act="range-speed" data-s="now">${f(nowKn)} kn ${lv.sogAvg >= 2 ? '(now)' : ''}</button><button class="chip ${rangeSpeed === 'eco' ? 'on' : ''}" data-act="range-speed" data-s="eco">${f(ecoKn)} kn (economy)</button>`;
     $('#range-dyn').innerHTML = `
-      <div class="chips" style="padding-top:10px">${Core.MODES.map((m) => `<button class="chip ${m === rangeEng ? 'on' : ''}" data-act="range-eng" data-m="${m}">${MODE_LABEL[m]}</button>`).join('')}</div>
       ${!r ? '<div class="warn">Dip both tanks once (Tanks → Log dip) to see the range.</div>' : `
-      <div class="chips" style="padding-top:8px"><button class="chip ${rangeSpeed === 'now' ? 'on' : ''}" data-act="range-speed" data-s="now">At ${f(nowKn)} kn ${lv.sogAvg >= 2 ? '(now)' : ''}</button><button class="chip ${rangeSpeed === 'eco' ? 'on' : ''}" data-act="range-speed" data-s="eco">At ${f(ecoKn)} kn (economy)</button></div>
-      <div class="card dark"><div class="cardhead"><div><div class="sub">${rangeMode === 'round' ? 'Turn back before' : 'Reach'}</div><div class="num" style="font-size:30px">${fi(nmv(r))} NM</div><div class="sub">${f(r.lpnm)} L/NM at ${f(kn)} kn</div></div><div style="text-align:right;max-width:170px" class="sub">${rangeEng === 'both' ? 'Limited by ' + esc(Core.tank(r.limit).name) + ' tank' + (isFinite(r.otherNm) ? ` (other lasts ${fi(rangeMode === 'round' ? r.otherNm / 2 : r.otherNm)} NM)` : '') : 'Only the ' + esc(Core.tank(rangeEng).name) + ' tank is used'}<br>Dashed: ${fi(nmv(r2))} NM at ${f(alt)} kn</div></div></div>`}`;
+      <div class="card dark" style="margin-top:4px"><div class="cardhead"><div><div class="sub">${rangeMode === 'round' ? 'Turn back before' : 'Reach'}</div><div class="num" style="font-size:30px">${fi(nmv(r))} NM</div><div class="sub">${f(r.lpnm)} L/NM at ${f(kn)} kn</div></div><div style="text-align:right;max-width:170px" class="sub">${rangeEng === 'both' ? 'Limited by ' + esc(Core.tank(r.limit).name) + ' tank' + (isFinite(r.otherNm) ? ` (other lasts ${fi(rangeMode === 'round' ? r.otherNm / 2 : r.otherNm)} NM)` : '') : 'Only the ' + esc(Core.tank(rangeEng).name) + ' tank is used'}<br>Dashed: ${fi(nmv(r2))} NM at ${f(alt)} kn</div></div></div>`}`;
     $('#range-note').textContent = `Green pins = boat fuel stations, white = fuel station by the water (tap for price, distance and fuel needed). Usable fuel excludes what lies below the suction pipe. Open water avoids land and water shallower than the ${f(s.settings.draftM)} m draft limit (100 m grid); Fairways follows marked fairway lines. Planning aid only — wind and sea add to consumption.`;
     const m = maps.range; m._over.clearLayers(); clearRoute();
     const man = s.settings.rangeStart;
     const c = man ? [man.lat, man.lon] : lv.fix ? [lv.fix.lat, lv.fix.lon] : null;
-    $('#range-start').innerHTML = `<div class="chips" style="padding-top:8px;align-items:center"><span class="sub">Start:</span>
-      <button class="chip ${man ? '' : 'on'}" data-act="range-start-gps">${lv.fix ? 'Boat (GPS)' : 'GPS – no position'}</button>
-      ${man ? '<button class="chip on" data-act="range-start-gps">Chosen point ✕</button>' : '<span class="sub">or long-press the map</span>'}</div>`;
+    $('#range-start').innerHTML = `<button class="chip ${man ? '' : 'on'}" data-act="range-start-gps">${lv.fix ? 'Boat (GPS)' : 'GPS – no position'}</button>
+      ${man ? '<button class="chip on" data-act="range-start-gps">Chosen point ✕</button>' : '<span class="sub" style="align-self:center">or long-press the map</span>'}`;
     rangeCtx = { r, r2, kn, alt, c, nmv, err: null };
     drawStations();
     if (!allStations().length) $('#range-dyn').insertAdjacentHTML('afterbegin', `<div class="warn">No fuel stations loaded yet.<div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow dark" data-act="fuel-update">Load fuel stations from OpenStreetMap</button></div><div class="sub" id="fuel-out"></div></div>`);
@@ -950,7 +969,7 @@
       }
       const lo = r2 && nmv(r2) < nmv(r) ? alt : kn, hi = lo === kn ? alt : kn;
       setRangeStatus((area === 'water' ? 'Dark = reachable at ' + f(lo) + ' kn, light = also at ' + f(hi) + ' kn' : 'Black = fairways reachable at ' + f(lo) + ' kn, blue = also at ' + f(hi) + ' kn') +
-        ` · draft limit ${f(s.settings.draftM)} m · ${(res.ms / 1000).toFixed(1)} s. Tap the map for a route.`);
+        ` · draft limit ${f(s.settings.draftM)} m · ${f(res.ms / 1000)} s. Tap the map for a route.`);
     }).catch((e) => { if (token === rangeToken) circles('Calculation failed (' + e.message + ').'); });
   }
   let rangeToken = 0, rangeCtx = null, rangeRenderer = null, routeLayer = null, lastTap = null;
@@ -1056,8 +1075,8 @@
         <button class="btn small" data-act="offline">Save Helm map area for offline</button><div class="sub" id="offline-out"></div>
       </div>
       <div class="card"><div class="cardhead"><div class="h">Economy &amp; range</div></div>
-        <div class="field"><label for="mincruise">Cruising from<small>slower = manoeuvring, never proposed</small></label><div class="inbox"><input id="mincruise" inputmode="decimal" value="${s.minCruiseKn}" data-act="setnum" data-k="minCruiseKn"><span>kn</span></div></div>
-        <div class="field"><label for="effm">Efficient cruise margin<small>max extra fuel per NM vs the best</small></label><div class="inbox"><input id="effm" inputmode="decimal" value="${s.effMarginPct}" data-act="setnum" data-k="effMarginPct"><span>%</span></div></div>
+        <div class="field"><label for="mincruise">Cruising from<small>slower = manoeuvring, never proposed</small></label><div class="inbox"><input id="mincruise" inputmode="decimal" value="${dv(s.minCruiseKn)}" data-act="setnum" data-k="minCruiseKn"><span>kn</span></div></div>
+        <div class="field"><label for="effm">Efficient cruise margin<small>max extra fuel per NM vs the best</small></label><div class="inbox"><input id="effm" inputmode="decimal" value="${dv(s.effMarginPct)}" data-act="setnum" data-k="effMarginPct"><span>%</span></div></div>
         <div class="field"><label for="rpmstep">RPM rounding</label><div class="inbox"><input id="rpmstep" inputmode="decimal" value="${s.rpmStep}" data-act="setnum" data-k="rpmStep"><span>rpm</span></div></div>
       </div>
       <div class="card"><div class="cardhead"><div class="h">Ruler</div></div>
@@ -1066,7 +1085,7 @@
       </div>
       <div class="card"><div class="cardhead"><div class="h">Sea data for range</div></div>
         <div class="sub">Land, depth and fairways for Suomenlahti and Saaristomeri, built by the "Build sea data" workflow in your GitHub repository. Download once on Wi-Fi; it then works offline.</div>
-        <div class="field"><label for="draft">Draft limit<small>avoid water shallower than this</small></label><div class="inbox"><input id="draft" inputmode="decimal" value="${s.draftM}" data-act="setnum" data-k="draftM"><span>m</span></div></div>
+        <div class="field"><label for="draft">Draft limit<small>avoid water shallower than this</small></label><div class="inbox"><input id="draft" inputmode="decimal" value="${dv(s.draftM)}" data-act="setnum" data-k="draftM"><span>m</span></div></div>
         <button class="btn small" data-act="sea-download">Download / update sea data</button>
         <div class="sub" id="sea-out">${Sea.meta ? 'Loaded: ' + seaInfo(Sea.meta) : 'Not downloaded yet.'}</div>
         <div class="cardhead" style="padding-top:8px"><div class="h">Fuel stations</div><div class="sub">${(Sea.stations || []).length} on the map${(S().userStations || []).length ? ' + ' + S().userStations.length + ' your own' : ''}</div></div>
@@ -1078,7 +1097,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 4.9.1 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 5.0 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -1127,7 +1146,7 @@
 
   // ---------- actions ----------
   const RPMS = []; for (let r = 700; r <= 2800; r += 100) RPMS.push(r);
-  let sheetUnit = 'mm', dipKindSel = 'check';
+  let sheetUnit = 'mm', dipKindSel = 'check', delDipFn = null, delDipOne = [];
   function readCleanTable() {
     S().hull.clean = S().hull.clean.map((r, i) => { const a = $('#ch-r' + i), b = $('#ch-k' + i); return [a ? Core.num(a.value) : r[0], b ? Core.num(b.value) : r[1]]; });
   }
@@ -1146,10 +1165,11 @@
       }
       loadSheet();
     },
-    'predip-skip': () => loadSheet(),
+    'predip-skip': () => { if (current !== 'helm') go('helm'); loadSheet(); },
     'predip': () => { closeSheet(); go('predip'); },
     'start-with-load': async (el) => {
       closeSheet();
+      if (current !== 'helm') go('helm');
       await Core.startTrip('both', el.dataset.l); follow = true; trackCache = []; helmTrack.setLatLngs([]); renderHelmDyn(); toast('Trip started (' + LOAD_LABEL[el.dataset.l].toLowerCase() + ' load). Set RPM when you settle on a cruise.');
     },
     'load-sheet': () => sheet(`<h3>Load on board</h3><div class="list">${['light', 'normal', 'full'].map((l) => `<button class="item" data-act="set-load" data-l="${l}"><span class="main"><b>${LOAD_LABEL[l]}</b><span>${LOAD_HINT[l]}</span></span>${S().active && S().active.load === l ? '<span class="right"><span class="num">✓</span></span>' : ''}</button>`).join('')}</div>`),
@@ -1211,6 +1231,8 @@
       S().hull.clean = rows; S().hull.cleanSample = false; Core.save(); toast('Clean-hull table saved'); R.curve();
     },
     'tank-sel': (el) => { tankSel = el.dataset.t; R.tanks(); },
+    'hist-toggle': () => { histOpen = !histOpen; R.tanks(); },
+    'sug-chart': () => { sugChart = !sugChart; R.tanks(); },
     'dip-sheet': () => {
       // default type: right after a trip (within 6 h, no dip since) it is "after trip", otherwise "separate"
       const lastEnd = S().trips.reduce((m, tr) => Math.max(m, tr.end || 0), 0);
@@ -1239,10 +1261,10 @@
       sheet(`<h3>Edit ${esc(t.name)} tank</h3>
         <div class="card">
           <div class="field"><label for="et-name">Name</label><div class="inbox wide" style="width:50%"><input id="et-name" value="${esc(t.name)}"></div></div>
-          <div class="field"><label for="et-cap">Capacity</label><div class="inbox"><input id="et-cap" inputmode="decimal" value="${t.capacity}"><span>L</span></div></div>
+          <div class="field"><label for="et-cap">Capacity</label><div class="inbox"><input id="et-cap" inputmode="decimal" value="${dv(t.capacity)}"><span>L</span></div></div>
           <div class="field"><label for="et-max">Full-tank depth<small>ruler reading when full</small></label><div class="inbox"><input id="et-max" inputmode="decimal" value="${rn(t.maxMm)}"><span>${RUL()}</span></div></div>
           <div class="field"><label for="et-pipe">Suction pipe ends at<small>depth on the ruler</small></label><div class="inbox"><input id="et-pipe" inputmode="decimal" value="${byL ? '' : rn(t.pipeMm)}"><span>${RUL()}</span></div></div>
-          <div class="field"><label for="et-pipeL">…or unusable litres<small>leave empty to use the depth</small></label><div class="inbox"><input id="et-pipeL" inputmode="decimal" value="${byL ? t.pipeL : ''}"><span>L</span></div></div>
+          <div class="field"><label for="et-pipeL">…or unusable litres<small>leave empty to use the depth</small></label><div class="inbox"><input id="et-pipeL" inputmode="decimal" value="${byL ? dv(t.pipeL) : ''}"><span>L</span></div></div>
         </div>
         <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="save-tank">Save</button></div>`);
     },
@@ -1319,6 +1341,18 @@
     'reject-curve': () => { Core.rejectCurve(); closeSheet(); toast('Kept the current curve'); R.tanks(); },
     'restore-curve': (el) => confirmSheet('Restore this curve?', 'The current curve is kept in the list so you can switch back.', 'Restore', () => { Core.restoreCurve(+el.dataset.i); R.tanks(); }),
     'del-event': (el) => confirmSheet('Delete this reading?', 'Levels, consumption curves and the tank-curve fit are recalculated without it.', 'Delete', () => { Core.deleteEvent(el.dataset.id); (R[current] || R.tanks)(); }),
+    'log-all': (el) => { logAll[el.dataset.k] = !logAll[el.dataset.k]; R.log(); },
+    'del-dips': (el) => {
+      const ids = el.dataset.ids.split(','), ev = ids.map((id) => S().events.find((e) => e.id === id)).filter(Boolean);
+      if (ev.length === 1) return A['del-event']({ dataset: { id: ids[0] } });
+      const rm = (list) => { list.forEach((e) => Core.deleteEvent(e.id)); closeSheet(); R.log(); };
+      delDipFn = rm.bind(null, ev); delDipOne = ev;
+      sheet(`<h3>Delete dip</h3><p>Levels, consumption curves and the tank-curve fit are recalculated without it.</p>
+        <div class="btnrow" style="flex-wrap:wrap">${ev.map((e, i) => `<button class="btn grow" data-act="del-dip-one" data-i="${i}">${esc(Core.tank(e.tank).name)} only</button>`).join('')}</div>
+        <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="del-dip-all">Delete both</button></div>`);
+    },
+    'del-dip-all': () => { if (delDipFn) delDipFn(); },
+    'del-dip-one': (el) => { const e = delDipOne[+el.dataset.i]; if (e) { Core.deleteEvent(e.id); closeSheet(); R.log(); } },
     'log-period': (el) => { logPeriod = el.dataset.p === 'all' ? 'all' : +el.dataset.p; R.log(); },
     'del-refuel': (el) => confirmSheet('Delete this refuel?', 'Levels, consumption curves and the tank-curve fit are recalculated without it.', 'Delete', () => {
       S().events.filter((e) => (e.group || e.id) === el.dataset.k).forEach((e) => Core.deleteEvent(e.id)); R.log();

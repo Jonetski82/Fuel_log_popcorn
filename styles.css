@@ -29,7 +29,7 @@ button, input, select { font-family: inherit; font-size: 15px; color: var(--ink)
 a { color: var(--blue); }
 
 #app { position: fixed; inset: 0 0 var(--nav-h) 0; overflow: hidden; }
-.view { position: absolute; inset: 0; overflow-y: auto; padding-bottom: 24px; display: none; }
+.view { position: absolute; inset: 0; overflow-y: auto; padding-bottom: 40px; display: none; }
 .view.active { display: block; }
 
 .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px 10px 16px; }
@@ -83,7 +83,7 @@ a { color: var(--blue); }
 .btn { height: 52px; border-radius: 12px; border: 1px solid var(--ink); background: transparent; font-weight: 600; font-size: 15px; padding: 0 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; flex: 1; font-size: 16px; }
 .btn.dark { background: var(--ink); color: #fff; }
-.btn.small { height: 44px; font-size: 14px; }
+.btn.small { height: 44px; font-size: 14px; white-space: nowrap; }
 .btn.grow { flex: 1; }
 .btn:disabled { opacity: 0.45; }
 
@@ -161,3 +161,15 @@ svg.chart text { font-family: 'Barlow', sans-serif; }
 .logrow .right .num{font-size:16px;color:#13212F}
 
 .fuel-pin{background:none;border:0}
+/* v5.0: helm trip controls — three equal buttons, label above value */
+.ctl3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px 16px 0 16px}
+.ctl{border:1.5px solid var(--ink);background:var(--surface);border-radius:12px;min-height:56px;padding:6px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;cursor:pointer}
+.ctl span{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.ctl b{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.ctl.dark{background:var(--ink);color:#fff}
+.ctl.dark span{color:var(--night-ink)}
+.cardhead.fold{border:0;background:transparent;padding:0;width:100%;cursor:pointer;text-align:left;font:inherit;color:inherit;align-items:center}
+.optrow{display:flex;flex-direction:column;gap:6px}
+.optrow > .lbl{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.optrow .chips{padding:0;gap:6px}
+.optrow .chip{height:36px;padding:0 12px}
