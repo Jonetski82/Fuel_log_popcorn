@@ -179,6 +179,9 @@ const I18N = (() => {
     // ---- v4.5: dips, refuel time, trips by hand, helm ----
     '{n} L/NM at {n} kn': '{n} L/NM {n} kn:ssa', 'Trip': 'Matka', 'Estimated': 'Arvio',
     'Curve after': 'Käyrä jälkeen', 'Brim': 'Piripinta', 'level now {n} L': 'määrä nyt {n} L', 'level now +{n} L': 'määrä nyt +{n} L', 'level now −{n} L': 'määrä nyt −{n} L',
+    'Green pins = fuel stations (tap for price, distance and fuel needed).': 'Vihreät merkit = tankkausasemat (napauta: hinta, matka ja tarvittava polttoaine).',
+    'Range & fuel stations': 'Kantama ja tankkausasemat',
+    'today': 'tänään', '{n} d ago': '{n} pv sitten', '{n} wk ago': '{n} vk sitten', '{n} mo ago': '{n} kk sitten',
     'When': 'Ajankohta', 'change if you log it afterwards': 'muuta, jos kirjaat jälkikäteen', 'Load: Light': 'Kuorma: kevyt', 'Load: Normal': 'Kuorma: normaali', 'Load: Full': 'Kuorma: täysi',
     'Trips without GPS (logged afterwards) can be added on the Trips tab.': 'Ilman GPS:ää ajetut matkat voi lisätä jälkikäteen Matkat-välilehdellä.',
     'No dip recorded yet. A dip before departure lets the app follow the fuel levels and measure consumption.': 'Mittauksia ei vielä ole. Mittaus ennen lähtöä antaa sovelluksen seurata polttoainemääriä ja mitata kulutusta.',
@@ -283,7 +286,7 @@ const I18N = (() => {
     [/^(Planning failed|Route failed|Import failed|Update check failed): (.*)$/, (m, w, x) => ({ 'Planning failed': 'Suunnittelu epäonnistui', 'Route failed': 'Reitin laskenta epäonnistui', 'Import failed': 'Tuonti epäonnistui', 'Update check failed': 'Päivityksen tarkistus epäonnistui' }[w]) + ': ' + x],
     [/^Wind: not available \((.*)\)$/, (m, x) => `Tuuli: ei saatavilla (${FI[x] || x})`],
     [/^Loaded: built (.+?), depth: (.+?), (\d+) fairway segments, (\d+) fuel stations, (.+) MB$/, (m, b, d, f, s, mb) => `Ladattu: rakennettu ${b}, syvyys: ${d}, ${f} väyläosuutta, ${s} tankkausasemaa, ${mb} MB`],
-    [/^seen (.+)$/, (m, x) => 'nähty ' + x], [/^you paid (.+)$/, (m, x) => 'maksoit ' + x]
+    [/^seen (.+)$/, (m, x) => 'nähty ' + tr(x)], [/^you paid (.+)$/, (m, x) => 'maksoit ' + tr(x)]
   ];
 
   const NUM = /\d{1,2}\.\d{1,2}\.(?:\d{4})?|-?\d+(?:[.,]\d+)?/g;   // dates like 10.10. or 10.10.2026 count as one number

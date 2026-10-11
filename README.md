@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 4.5)
+# Popcorn Fuel Log (PWA, version 4.6)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -99,3 +99,8 @@ Reserviasetus on poistettu. Käytettävä polttoaine = kaikki imuputken yläpuol
 - Matkan voi lisätä käsin (päivä, matka, ajoaika, koneet, kuorma); muokattavissa.
 - Tankkauksen ja mittauksen ajankohdan voi muuttaa jälkikirjausta varten. Mittaus molemmille tankeille samassa ikkunassa.
 - Suomeksi desimaalipilkku.
+
+## Versio 4.6 – reittisuunnittelu poistettu, selkeät asemamerkit
+
+- Reittisuunnittelu tankkauksineen on poistettu (planner.js ei ole enää käytössä ja sen voi poistaa repositorysta).
+- Kantamakartalla tankkausasemat näkyvät vihreinä merkkeinä; lähellä merkin yläpuolella näkyy viimeisin tunnettu hinta, kaukaa pieni pyöreä merkki.

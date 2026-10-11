@@ -116,7 +116,7 @@
       ${s.tanks.map(tankBar).join('')}
       <div class="sub">Hatched = below suction pipe</div>
       <div class="sub" id="helm-range"></div>
-      <button class="btn small dark" data-act="go" data-v="range">${IC.ring} Range &amp; planning</button></div>`;
+      <button class="btn small dark" data-act="go" data-v="range">${IC.ring} Range &amp; fuel stations</button></div>`;
   }
   function bandsHtml(bb) {
     const rows = []; let max = 0;
@@ -690,7 +690,7 @@
   R.range = () => {
     const v = $('#v-range');
     if (!rangeBuilt) {
-      v.innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Range &amp; planning</div><div class="sub" id="range-sub"></div></div></div>
+      v.innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Range &amp; fuel stations</div><div class="sub" id="range-sub"></div></div></div>
         <div class="seg" id="range-seg"></div>
         <div class="seg" id="range-area" style="margin-top:8px"></div>
         <div id="range-start"></div>
@@ -698,7 +698,6 @@
         <div class="mapbox" style="height:40vh;min-height:240px;margin-top:8px"><div id="map-range" class="map"></div></div>
         <div class="note" id="range-status"></div>
         <div id="range-route"></div>
-        <div id="range-plan"></div>
         <div class="note" id="range-note"></div>`;
       getMap('range').on('click', rangeTap).on('contextmenu', (ev) => setRangeStart(ev.latlng.lat, ev.latlng.lng)); rangeBuilt = true;
     }
@@ -721,7 +720,7 @@
       ${!r ? '<div class="warn">Dip both tanks once (Tanks → Log dip) to see the range.</div>' : `
       <div class="chips" style="padding-top:8px"><button class="chip ${rangeSpeed === 'now' ? 'on' : ''}" data-act="range-speed" data-s="now">At ${f(nowKn)} kn ${lv.sogAvg >= 2 ? '(now)' : ''}</button><button class="chip ${rangeSpeed === 'eco' ? 'on' : ''}" data-act="range-speed" data-s="eco">At ${f(ecoKn)} kn (economy)</button></div>
       <div class="card dark"><div class="cardhead"><div><div class="sub">${rangeMode === 'round' ? 'Turn back before' : 'Reach'}</div><div class="num" style="font-size:30px">${fi(nmv(r))} NM</div><div class="sub">${f(r.lpnm)} L/NM at ${f(kn)} kn</div></div><div style="text-align:right;max-width:170px" class="sub">${rangeEng === 'both' ? 'Limited by ' + esc(Core.tank(r.limit).name) + ' tank' + (isFinite(r.otherNm) ? ` (other lasts ${fi(rangeMode === 'round' ? r.otherNm / 2 : r.otherNm)} NM)` : '') : 'Only the ' + esc(Core.tank(rangeEng).name) + ' tank is used'}<br>Dashed: ${fi(nmv(r2))} NM at ${f(alt)} kn</div></div></div>`}`;
-    $('#range-note').textContent = `Usable fuel excludes what lies below the suction pipe. Open water avoids land and water shallower than the ${f(s.settings.draftM)} m draft limit (100 m grid); Fairways follows marked fairway lines. Planning aid only — wind and sea add to consumption.`;
+    $('#range-note').textContent = `Green pins = fuel stations (tap for price, distance and fuel needed). Usable fuel excludes what lies below the suction pipe. Open water avoids land and water shallower than the ${f(s.settings.draftM)} m draft limit (100 m grid); Fairways follows marked fairway lines. Planning aid only — wind and sea add to consumption.`;
     const m = maps.range; m._over.clearLayers(); clearRoute();
     const man = s.settings.rangeStart;
     const c = man ? [man.lat, man.lon] : lv.fix ? [lv.fix.lat, lv.fix.lon] : null;
@@ -730,7 +729,7 @@
       ${man ? '<button class="chip on" data-act="range-start-gps">Chosen point ✕</button>' : '<span class="sub">or long-press the map</span>'}</div>`;
     rangeCtx = { r, r2, kn, alt, c, nmv, err: null };
     if (!r) return;
-    drawStations(); renderPlanPanel();
+    drawStations();
     if (!c) { rangeCtx.err = 'nostart'; setRangeStatus('No GPS position. Long-press the map (or tap it and choose "Start from here") to set a start point.'); return; }
     L.marker(c, { icon: man ? startIcon() : boatIcon(lv.fix ? lv.fix.heading || 0 : 0), interactive: false, zIndexOffset: 1000 }).addTo(m._over);
     m.invalidateSize(); m.fitBounds(L.latLng(c).toBounds(Math.max(nmv(r), nmv(r2) || 0) * 1852 * 2.1));
@@ -775,156 +774,33 @@
     allStations().forEach((st) => { const d = Core.haversine([lat, lon], [st.lat, st.lon]); if (d < bd) { bd = d; best = st; } });
     return best && bd <= maxM ? { st: best, m: bd } : null;
   }
-  const fuelIcon = (known) => L.divIcon({ className: 'boat-icon', iconSize: [26, 26], iconAnchor: [13, 13], html: `<svg width="26" height="26" viewBox="0 0 26 26"><circle cx="13" cy="13" r="12" fill="${known ? '#B8470F' : '#13212F'}" stroke="#fff" stroke-width="2"/><path d="M9 19V8.5c0-.8.6-1.5 1.5-1.5h3c.8 0 1.5.7 1.5 1.5V19M8 19h8M9.5 11h5M15 10.5l2 1.5v4.5a1 1 0 0 0 2 0V12l-2-2" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>` });
+  const PUMP = '<path d="M7 21V6.5A1.5 1.5 0 0 1 8.5 5h6A1.5 1.5 0 0 1 16 6.5V21M5.5 21h12M9 8.5h5v3.5H9zM16 10l2.4 1.6a1 1 0 0 1 .4.8V17a1.2 1.2 0 0 0 2.4 0v-6.2l-2.3-2.6" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>';
+  function fuelIcon(st, zoom) {
+    if (zoom < 11) return L.divIcon({ className: 'fuel-pin', iconSize: [24, 24], iconAnchor: [12, 12], html: `<svg width="24" height="24" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35))"><circle cx="12" cy="12" r="10.5" fill="#0E6B3A" stroke="#fff" stroke-width="2"/><g transform="translate(3.6 3.4) scale(.7)">${PUMP}</g></svg>` });
+    const lp = lastPrice(st.id), w = 64;
+    const tag = lp ? `<div style="margin-bottom:1px;padding:1px 6px;border-radius:9px;background:#fff;border:1.5px solid #0E6B3A;color:#0E6B3A;font:700 12px 'Barlow Semi Condensed',Barlow,sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)">${f(lp.price, 2)} €</div>` : '';
+    const h = lp ? 66 : 46;   // price tag sits above the pin, the tip marks the station
+    return L.divIcon({ className: 'fuel-pin', iconSize: [w, h], iconAnchor: [w / 2, h - 1], html: `<div style="display:flex;flex-direction:column;align-items:center;width:${w}px">${tag}
+      <svg width="36" height="46" viewBox="0 0 36 46" style="filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))"><path d="M18 45C18 45 3 28.5 3 17.5a15 15 0 0 1 30 0C33 28.5 18 45 18 45Z" fill="#0E6B3A" stroke="#fff" stroke-width="2.5"/><g transform="translate(6.5 5)">${PUMP}</g></svg></div>` });
+  }
   let stationLayer = null, openStation = null;
 
-  // ---------------- trip planner ----------------
-  const plan = { on: false, dest: null, vias: [], speed: 'eco', customKn: 7, res: null, sel: 'cheapest', busy: false, layer: null, msg: '' };
-  const NMm = 1852;
-  const planKn = () => { const e = Core.economy(), lv = Core.live; if (plan.speed === 'eco') return e ? e.best.kn : 6.5; if (plan.speed === 'now') return lv.sogAvg >= 2 ? lv.sogAvg : 7; return plan.customKn; };
-  const ptName = (p) => p.name || (p.lat.toFixed(3) + ' / ' + p.lon.toFixed(3));
-  function clearPlanLayer() { if (plan.layer && maps.range) maps.range.removeLayer(plan.layer); plan.layer = null; }
-  function renderPlanPanel() {
-    const box = $('#range-plan'); if (!box) return;
-    if (!plan.on) { box.innerHTML = '<div class="btnrow" style="padding-top:6px"><button class="btn small grow dark" data-act="plan-open">Plan trip with refuelling</button></div>'; return; }
-    const s = S().settings, e = Core.economy(), lv = Core.live;
-    const startTxt = s.rangeStart ? 'chosen point' : (lv.fix ? 'boat (GPS)' : 'not set — long-press the map');
-    box.innerHTML = `<div class="card">
-      <div class="cardhead"><div class="h">Trip plan</div><button class="btn small" data-act="plan-close">Close</button></div>
-      <div class="sub">Start: <b style="color:#13212F">${startTxt}</b></div>
-      <div class="sub">Destination: <b style="color:#13212F">${plan.dest ? esc(ptName(plan.dest)) : 'tap the map or a fuel station'}</b>${plan.dest ? ' <button class="iconbtn" aria-label="Clear destination" data-act="plan-clear-dest">' + IC.x + '</button>' : ''}</div>
-      ${plan.vias.map((v, i) => `<div class="sub">Stop-over ${i + 1}: <b style="color:#13212F">${esc(ptName(v))}</b> <button class="iconbtn" aria-label="Remove stop-over" data-act="plan-del-via" data-i="${i}">${IC.x}</button></div>`).join('')}
-      <div class="seg" style="margin:0">
-        <button class="${plan.speed === 'eco' ? 'on' : ''}" data-act="plan-speed" data-s="eco">Economy ${f(e ? e.best.kn : 6.5)} kn</button>
-        <button class="${plan.speed === 'now' ? 'on' : ''}" data-act="plan-speed" data-s="now">Now ${f(lv.sogAvg >= 2 ? lv.sogAvg : 7)} kn</button>
-        <button class="${plan.speed === 'custom' ? 'on' : ''}" data-act="plan-speed" data-s="custom">Other</button></div>
-      ${plan.speed === 'custom' ? `<div class="field"><label for="plan-kn">Speed</label><div class="inbox"><input id="plan-kn" inputmode="decimal" value="${plan.customKn}" data-act="plan-kn"><span>kn</span></div></div>` : ''}
-      <div class="field"><label for="plan-arrive">Fuel left at destination<small>both tanks together, usable fuel</small></label><div class="inbox"><input id="plan-arrive" inputmode="decimal" value="${s.planArriveL ?? 50}" data-act="setnum" data-k="planArriveL"><span>L</span></div></div>
-      <div class="field"><label for="plan-extra">Extra per refuel<small>on top of what the next leg needs</small></label><div class="inbox"><input id="plan-extra" inputmode="decimal" value="${s.planExtraL ?? 20}" data-act="setnum" data-k="planExtraL"><span>L</span></div></div>
-      <div class="sub">Route: ${s.rangeArea === 'fairway' ? 'along fairways' : s.rangeArea === 'water' ? 'over open water' : 'straight lines (Circle mode)'} · ${MODE_LABEL[rangeEng || 'both']} · draft limit ${f(s.draftM)} m</div>
-      <button class="btn primary" data-act="plan-calc" ${plan.dest && !plan.busy ? '' : 'disabled'}>${plan.busy ? 'Calculating…' : 'Calculate plan'}</button>
-      <div class="sub" id="plan-msg">${esc(plan.msg)}</div>
-      <div id="plan-out"></div></div>`;
-    if (plan.res) renderPlanResults();
-  }
-  async function calcPlan() {
-    const s = S().settings, ctxR = rangeCtx;
-    if (!ctxR || !ctxR.c) { plan.msg = 'Set a start point first.'; return renderPlanPanel(); }
-    if (S().tanks.some((t) => !Core.levelNow(t.id).known)) { plan.msg = 'Dip both tanks first.'; return renderPlanPanel(); }
-    plan.busy = true; plan.res = null; plan.msg = 'Preparing…'; clearPlanLayer(); renderPlanPanel();
-    try {
-      const kn = planKn(), mode = rangeEng || 'both', lf = Core.loadFactor(s.lastLoad);
-      const rate = {}; Core.ENG.forEach((e) => { rate[e] = (lf * Core.lphEng(e, mode, kn)) / kn; });
-      const tanks = {}; Core.ENG.forEach((e) => { const u = Core.usable(e), tk = Core.tank(e); tanks[e] = { level: u.L, min: u.dead, hard: u.dead, cap: tk.capacity }; });
-      const start = { lat: ctxR.c[0], lon: ctxR.c[1], name: 'Start' }, dest = plan.dest;
-      const hv = (a, b) => Core.haversine([a.lat, a.lon], [b.lat, b.lon]);
-      const chain = [start].concat(plan.vias, [dest]);
-      let chainLen = 0; for (let i = 1; i < chain.length; i++) chainLen += hv(chain[i - 1], chain[i]);
-      const cands = allStations().filter((st) => chain.every((c) => hv(c, st) > 300)).map((st) => { let det = Infinity; for (let i = 1; i < chain.length; i++) det = Math.min(det, hv(chain[i - 1], st) + hv(st, chain[i]) - hv(chain[i - 1], chain[i])); return { st, det }; })
-        .filter((x) => x.det <= 0.4 * chainLen + 15000).sort((x, y) => x.det - y.det).slice(0, 12);
-      const defPrice = Core.num(s.price) > 0 ? Core.num(s.price) : 1.95;
-      const pts = chain.concat(cands.map((x) => x.st));
-      const nodes = [{ kind: 'start', name: 'Start' }].concat(plan.vias.map((v) => ({ kind: 'via', name: ptName(v) })), [{ kind: 'end', name: ptName(dest) }],
-        cands.map((x) => { const lp = lastPrice(x.st.id); return { kind: 'station', name: x.st.name, st: x.st, price: lp ? lp.price : defPrice, priceEstimated: !lp }; }));
-      let D, how = 'straight lines', note = '';
-      const useSea = s.rangeArea !== 'circle' && Sea.meta && !(ctxR.err && ctxR.err !== 'nostart');
-      if (useSea) {
-        let maxD = 0; pts.forEach((p) => pts.forEach((q) => { maxD = Math.max(maxD, hv(p, q)); }));
-        const res = await Sea.matrix(pts.map((p) => ({ lat: p.lat, lon: p.lon })), s.rangeArea, s.draftM, Math.min(500000, maxD * 1.6 + 20000),
-          ([k, n]) => { plan.msg = `Calculating sea distances ${k}/${n}…`; const el = $('#plan-msg'); if (el) el.textContent = plan.msg; });
-        D = res.D; how = s.rangeArea === 'water' ? 'open water' : 'fairways';
-        // start, stop-overs or destination unreachable on the sea grid (on land / too shallow): fall back to straight lines
-        const bad = chain.map((_, i) => i).filter((i) => pts.every((_, j) => j === i || !isFinite(D[i][j])));
-        if (bad.length) {
-          note = `${bad.map((i) => (i === 0 ? 'Start' : i === chain.length - 1 ? 'Destination' : 'Stop-over ' + i)).join(', ')} not reachable ${how === 'fairways' ? 'along fairways' : 'over open water'} with the ${f(s.draftM)} m draft limit (on land, or too shallow nearby) — using straight lines × 1.2 instead.`;
-          D = pts.map((p) => pts.map((q) => hv(p, q) * 1.2)); how = 'straight lines';
-        }
-      } else D = pts.map((p) => pts.map((q) => hv(p, q)));
-      const lostSt = cands.filter((_, k) => !isFinite(D[0][chain.length + k]) && chain.every((_, j) => !isFinite(D[j][chain.length + k]))).length;
-      const order = chain.map((_, i) => i);
-      const r = Planner.plan({ D, nodes, order, tanks, rate, arriveL: s.planArriveL ?? 50, extraL: s.planExtraL ?? 20, defaultPrice: defPrice, kn, stopMin: 15, maxStops: 4 });
-      const above = (e) => (rate[e] ? `${Core.tank(e).name} ${fi(tanks[e].level - tanks[e].min)} L` : null);
-      const diag = { above: Core.ENG.map(above).filter(Boolean).join(' · '), lpnm: rate.port + rate.stbd, kn, directNm: D[0][chain.length - 1] / NMm, cands: cands.length, lostSt, how, note, cap: Core.ENG.filter((e) => rate[e]).reduce((a, e) => a + tanks[e].cap - tanks[e].min, 0) };
-      plan.res = { r, nodes, pts, kn, how, mode, D, diag, rate, tanks }; plan.sel = r.cheapest ? 'cheapest' : 'shortest';
-      plan.msg = r.cheapest ? `${r.tried} combinations checked · ${cands.length} stations near the route${lostSt ? ` (${lostSt} not reachable by sea)` : ''} · distances ${how}` : '';
-    } catch (e) { plan.msg = 'Planning failed: ' + e.message; }
-    plan.busy = false; renderPlanPanel();
-  }
-  function renderPlanResults() {
-    const out = $('#plan-out'); if (!out || !plan.res) return;
-    const { r, nodes } = plan.res;
-    const dg = plan.res.diag || {};
-    const diagHtml = `<div class="sub" style="padding-top:6px">Usable fuel now: ${dg.above || '–'} · consumption ${f(dg.lpnm)} L/NM at ${f(dg.kn)} kn · direct ${isFinite(dg.directNm) ? f(dg.directNm) + ' NM' : 'not reachable'} · ${dg.cands} stations near the route${dg.lostSt ? ` (${dg.lostSt} not reachable by sea)` : ''} · distances ${dg.how}</div>`;
-    const noteHtml = dg.note ? `<div class="warn" style="margin:8px 0 0 0">${esc(dg.note)}</div>` : '';
-    if (!r.cheapest) {
-      const d = r.failure && r.failure.direct, arrive = S().settings.planArriveL ?? 50;
-      const why = [];
-      const empty = Core.ENG.filter((e) => plan.res.rate && plan.res.rate[e] && plan.res.tanks[e].level <= plan.res.tanks[e].min + 1);
-      if (empty.length) why.push(`${empty.length > 1 ? 'Both tanks are' : 'The ' + Core.tank(empty[0]).name + ' tank is'} empty (at or below the suction pipe) — dip again if this is wrong.`);
-      if (!isFinite(dg.directNm) && !(d && isFinite(d.shortfall))) why.push(`The destination cannot be reached ${dg.how === 'fairways' ? 'along fairways' : 'over open water'} from the start with the ${f(S().settings.draftM)} m draft limit. Try another route type or a lower draft limit.`);
-      if (arrive > dg.cap) why.push(`"Fuel left at destination" (${fi(arrive)} L) is more than the tanks can hold (${fi(dg.cap)} L usable).`);
-      if (!dg.cands) why.push('There are no fuel stations near the route. Add one on the map (tap the map → Add fuel station here) or download sea data again to update the station list.');
-      else if (dg.lostSt === dg.cands) why.push('None of the fuel stations near the route can be reached by sea with this route type.');
-      if (d && isFinite(d.shortfall)) why.push(`Going direct you would be short by about ${fi(d.shortfall)} L${r.failure.best ? `; the best combination with refuelling is still short by about ${fi(r.failure.best.shortfall)} L` : ''}.`);
-      out.innerHTML = `${noteHtml}<div class="warn" style="margin:8px 0 0 0"><b>No plan found.</b> ${why.map(esc).join(' ')} Try a lower "Fuel left at destination", the economy speed, a fuel station closer to the route, or Circle mode.</div>${diagHtml}`;
-      return;
-    }
-    const labels = { cheapest: 'Cheapest', fewest: 'Fewest stops', shortest: 'Shortest' };
-    // the same itinerary can win several objectives: show it once with the labels joined
-    const groups = [];
-    Object.keys(labels).filter((k) => r[k]).forEach((k) => { const key = r[k].seq.join('-'), g = groups.find((x) => x.key === key); if (g) g.ks.push(k); else groups.push({ key, ks: [k] }); });
-    if (!r[plan.sel]) plan.sel = groups[0].ks[0];
-    const selKey = r[plan.sel].seq.join('-');
-    const chips = groups.map((g) => { const p = r[g.ks[0]]; return `<button class="chip ${g.key === selKey ? 'on' : ''}" data-act="plan-sel" data-k="${g.ks[0]}">${g.ks.map((k) => labels[k]).join(' · ')} — ${fi(p.buy)} € · ${p.stops} stop${p.stops === 1 ? '' : 's'}</button>`; }).join('');
-    const p = r[plan.sel];
-    const legs = p.legs.map((l, i) => {
-      const from = nodes[l.from], to = nodes[l.to], rf = l.refuelAtFrom, rL = rf.port + rf.stbd;
-      const fuelRow = rL >= 1 ? `<div class="sub" style="color:#B8470F;font-weight:600">Refuel at ${esc(from.name)}: P ${fi(rf.port)} L + S ${fi(rf.stbd)} L × ${f(from.price, 3)} €/L = ${fi(rL * from.price)} €${from.priceEstimated ? ' (price estimate)' : ''}</div>` : '';
-      return `${fuelRow}<div style="padding:4px 0;border-bottom:1px solid #ECE8DC"><b>${i + 1}. ${esc(from.name)} → ${esc(to.name)}</b><div class="sub">${f(l.nm)} NM · ${dur(l.nm / plan.res.kn)} · arrive with P ${fi(l.arrive.port)} L / S ${fi(l.arrive.stbd)} L</div></div>`;
-    }).join('');
-    out.innerHTML = `<div class="chips" style="padding:8px 0 0 0">${chips}</div>
-      <div class="grid3" style="padding:8px 0 0 0">
-        <div class="tile"><div class="lbl">Distance</div><div class="num mid">${f(p.nm)}</div><div class="hint">NM · ${dur(p.hours)}</div></div>
-        <div class="tile"><div class="lbl">Fuel bought</div><div class="num mid">${fi(p.litresBought)}</div><div class="hint">L · ${p.stops} stop${p.stops === 1 ? '' : 's'}</div></div>
-        <div class="tile dark"><div class="lbl">Cost</div><div class="num mid">${fi(p.buy)} €</div><div class="hint">${p.estimated ? 'includes estimates' : 'known prices'}</div></div></div>
-      ${noteHtml}
-      <div style="padding-top:8px">${legs}</div>
-      <div class="sub" style="padding-top:6px">At the destination: P ${fi(p.end.port)} L · S ${fi(p.end.stbd)} L. ${esc(plan.msg)}</div>${diagHtml}`;
-    drawPlan(p);
-  }
-  async function drawPlan(p) {
-    clearPlanLayer();
-    const m = maps.range; if (!m) return;
-    const grp = L.layerGroup().addTo(m); plan.layer = grp;
-    const { nodes, pts, how } = plan.res, s = S().settings;
-    const all = [];
-    for (const l of p.legs) {
-      const a = pts[l.from], b = pts[l.to];
-      let line = [[a.lat, a.lon], [b.lat, b.lon]];
-      if (how !== 'straight lines') { try { const r = await Sea.leg({ lat: a.lat, lon: a.lon }, { lat: b.lat, lon: b.lon }, s.rangeArea, s.draftM, l.nm * NMm * 1.3 + 5000); if (r && r.pts && r.pts.length > 1) line = r.pts; } catch (e) { /* straight */ } }
-      if (plan.layer !== grp) return;
-      L.polyline(line, { color: '#B8470F', weight: 4 }).addTo(grp); all.push(...line);
-    }
-    p.seq.forEach((ni, k) => {
-      const n = nodes[ni], q = pts[ni];
-      if (n.kind === 'start') return;
-      L.marker([q.lat, q.lon], { interactive: false, zIndexOffset: 900, icon: L.divIcon({ className: 'boat-icon', iconSize: [22, 22], iconAnchor: [11, 11], html: `<div style="width:22px;height:22px;border-radius:11px;background:${n.kind === 'end' ? '#13212F' : '#B8470F'};color:#fff;font:600 12px Barlow,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fff">${n.kind === 'end' ? '⚑' : k}</div>` }) }).addTo(grp);
-    });
-    if (all.length) m.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
-  }
   function drawStations() {
     const m = maps.range; if (!m) return;
     if (stationLayer) m.removeLayer(stationLayer);
     stationLayer = L.layerGroup().addTo(m);
-    allStations().forEach((st) => L.marker([st.lat, st.lon], { icon: fuelIcon(!!lastPrice(st.id)), title: st.name, zIndexOffset: 500 }).on('click', () => stationCard(st)).addTo(stationLayer));
+    const z = m.getZoom();
+    allStations().forEach((st) => { const mk = L.marker([st.lat, st.lon], { icon: fuelIcon(st, z), title: st.name, zIndexOffset: 500 }).on('click', () => stationCard(st)).addTo(stationLayer); mk._st = st; });
+    if (!m._fuelZoom) { m._fuelZoom = true; m.on('zoomend', () => { if (!stationLayer) return; const zz = m.getZoom(); stationLayer.eachLayer((mk) => mk._st && mk.setIcon(fuelIcon(mk._st, zz))); }); }
   }
+
   async function stationCard(st) {
     openStation = st; clearRoute();
     const lp = lastPrice(st.id), area = S().settings.rangeArea;
     const info = [st.operator && st.operator !== st.name ? esc(st.operator) : '', st.fuels && st.fuels.length ? esc(st.fuels.join(', ').replace(/_/g, ' ')) : '', st.hours ? esc(st.hours) : ''].filter(Boolean).join(' · ');
     const head = `<div class="cardhead"><div><div class="h">${esc(st.name)}</div><div class="sub">${info || (st.user ? 'your own station' : 'OpenStreetMap')}</div></div>
       <div style="text-align:right"><div class="num" style="font-size:20px">${lp ? f(lp.price, 3) + ' €/L' : '–'}</div><div class="sub">${lp ? (lp.src === 'refuel' ? 'you paid ' : 'seen ') + ageTxt(lp.t) : 'no price yet'}</div></div></div>`;
-    const btns = `<div class="btnrow" style="padding:0">${plan.on ? '<button class="btn small grow dark" data-act="plan-dest-st">Destination</button><button class="btn small grow" data-act="plan-via-st">Stop-over</button>' : ''}<button class="btn small grow" data-act="price-seen">Log price seen</button>${st.user ? '<button class="btn small" data-act="del-station">Delete</button>' : ''}</div>`;
+    const btns = `<div class="btnrow" style="padding:0"><button class="btn small grow" data-act="price-seen">Log price seen</button>${st.user ? '<button class="btn small" data-act="del-station">Delete</button>' : ''}</div>`;
     const box = $('#range-route');
     box.innerHTML = `<div class="card">${head}<div class="sub" id="st-route">Calculating route…</div>${btns}</div>`;
     const ctx = rangeCtx;
@@ -946,14 +822,6 @@
   async function rangeTap(ev) {
     const s = S(), area = s.settings.rangeArea;
     lastTap = ev.latlng;
-    if (plan.on) {
-      sheet(`<h3>Trip plan</h3><p>Use the tapped point as…</p><div class="list">
-        <button class="item" data-act="plan-dest-tap"><span class="main"><b>Destination</b></span></button>
-        <button class="item" data-act="plan-via-tap"><span class="main"><b>Stop-over (visit on the way)</b></span></button>
-        <button class="item" data-act="range-start-here-sheet"><span class="main"><b>Start point</b></span></button></div>
-        <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button></div>`);
-      return;
-    }
     clearRoute();
     const box = (msg) => { $('#range-route').innerHTML = `<div class="card"><div class="sub">${msg}</div>${startBtn}</div>`; };
     if (!rangeCtx || !rangeCtx.r) return box('Dip both tanks first to calculate a range.');
@@ -1017,7 +885,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 4.5 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 4.6 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -1274,18 +1142,6 @@
     },
     'save-station': () => { const st = Core.addUserStation(lastTap.lat, lastTap.lng, $('#ns-n').value.trim()); closeSheet(); toast('Fuel station added'); drawStations(); stationCard(st); },
     'del-station': () => confirmSheet('Delete this station?', 'Its price history is kept in backups but the marker is removed.', 'Delete', () => { Core.deleteUserStation(openStation.id); openStation = null; clearRoute(); drawStations(); }),
-    'plan-open': () => { plan.on = true; plan.msg = 'Tap the map or a fuel station to choose the destination.'; renderPlanPanel(); },
-    'plan-close': () => { plan.on = false; plan.res = null; plan.msg = ''; clearPlanLayer(); renderPlanPanel(); },
-    'plan-dest-tap': () => { closeSheet(); plan.dest = { lat: lastTap.lat, lon: lastTap.lng, name: '' }; plan.res = null; clearPlanLayer(); renderPlanPanel(); },
-    'plan-via-tap': () => { closeSheet(); plan.vias.push({ lat: lastTap.lat, lon: lastTap.lng, name: 'Stop-over ' + (plan.vias.length + 1) }); plan.res = null; clearPlanLayer(); renderPlanPanel(); },
-    'range-start-here-sheet': () => { closeSheet(); setRangeStart(lastTap.lat, lastTap.lng); },
-    'plan-dest-st': () => { const st = openStation; if (!st) return; plan.dest = { lat: st.lat, lon: st.lon, name: st.name }; plan.res = null; clearRoute(); clearPlanLayer(); renderPlanPanel(); },
-    'plan-via-st': () => { const st = openStation; if (!st) return; plan.vias.push({ lat: st.lat, lon: st.lon, name: st.name }); plan.res = null; clearRoute(); clearPlanLayer(); renderPlanPanel(); },
-    'plan-clear-dest': () => { plan.dest = null; plan.res = null; clearPlanLayer(); renderPlanPanel(); },
-    'plan-del-via': (el) => { plan.vias.splice(+el.dataset.i, 1); plan.res = null; clearPlanLayer(); renderPlanPanel(); },
-    'plan-speed': (el) => { plan.speed = el.dataset.s; plan.res = null; clearPlanLayer(); renderPlanPanel(); },
-    'plan-calc': () => calcPlan(),
-    'plan-sel': (el) => { plan.sel = el.dataset.k; renderPlanResults(); },
     'range-start-here': () => { if (lastTap) setRangeStart(lastTap.lat, lastTap.lng); },
     'range-start-gps': () => { S().settings.rangeStart = null; Core.save(); toast('Start from the boat GPS position'); renderRange(); },
     'range-area': (el) => { S().settings.rangeArea = el.dataset.a; Core.save(); renderRange(); },
@@ -1328,11 +1184,10 @@
     if (act === 'seamarks') { s.seamarks = el.checked; Core.save(); refreshBaseLayers(); }
     if (act === 'tlayer') { s.traficomLayer = el.value; Core.save(); refreshBaseLayers(); }
     if (act === 'nlskey') { s.nlsKey = el.value.trim(); Core.save(); refreshBaseLayers(); }
-    if (act === 'plan-kn') { const v = Core.num(el.value); if (v >= 1 && v <= 30) { plan.customKn = v; plan.res = null; clearPlanLayer(); } else toast('Speed 1–30 kn'); }
     if (act === 'setnum') {
       const v = Core.num(el.value), k = el.dataset.k;
       const ok = { reservePct: v >= 0 && v < 90, minCruiseKn: v >= 1 && v <= 20, effMarginPct: v >= 0 && v <= 100, rpmStep: v >= 1 && v <= 500, draftM: v >= 0 && v <= 10, planArriveL: v >= 0 && v <= 800, planExtraL: v >= 0 && v <= 300 }[k];
-      if (ok) { s[k] = v; Core.save(); toast('Saved'); if (k.startsWith('plan')) { plan.res = null; clearPlanLayer(); } } else { toast('Value out of range'); el.value = s[k]; }
+      if (ok) { s[k] = v; Core.save(); toast('Saved'); } else { toast('Value out of range'); el.value = s[k]; }
     }
     if (act === 'import' && el.files[0]) {
       try { await Core.importAll(JSON.parse(await el.files[0].text())); toast('Backup imported'); go('helm'); }
@@ -1359,5 +1214,5 @@
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded && !(S() && S().active)) { reloaded = true; location.reload(); } });
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => reg.update()).catch(() => {}));
   }
-  window.FuelLogDebug = { go, Core, Sea, Wind, proposalSheet, plan };
+  window.FuelLogDebug = { go, Core, Sea, Wind, proposalSheet, maps };
 })();

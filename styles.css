@@ -159,3 +159,5 @@ svg.chart text { font-family: 'Barlow', sans-serif; }
 .logrow .main span{font-size:13px;color:#4F5B66}
 .logrow .right{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:13px;color:#4F5B66;white-space:nowrap}
 .logrow .right .num{font-size:16px;color:#13212F}
+
+.fuel-pin{background:none;border:0}
