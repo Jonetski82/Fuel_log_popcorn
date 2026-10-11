@@ -64,6 +64,8 @@ const Core = (() => {
     const m = maxMm;
     return [0, cap * 0.35 / m, cap * 0.65 * 3 / (m * m), -cap * 0.65 * 2 / (m * m * m), 0];
   }
+  // Popcorn's measured filling table (depth mm, litres), both tanks together; measured up to 67.5 cm
+  const BOAT_TABLE = [[0, 0], [50, 10], [100, 18], [145, 36], [170, 54], [180, 60], [185, 60], [200, 64], [205, 78], [215, 78], [235, 69], [240, 96], [260, 96], [295, 119], [330, 119], [370, 157], [395, 175], [400, 157], [420, 175], [460, 209], [490, 209], [490, 238], [515, 238], [550, 268], [560, 268], [580, 291], [585, 291], [600, 310], [610, 325], [615, 325], [635, 340], [665, 360], [675, 360]];
   const zeroCorr = () => ({ shared: [0, 0, 0, 0, 0], port: [0, 0, 0, 0, 0], stbd: [0, 0, 0, 0, 0], scale: { port: 0, stbd: 0 } });
   const scaleOf = (corr, tk) => (corr.scale && corr.scale[tk.id]) || 0;   // per-tank size factor: a slightly bigger tank holds x % more at every depth
   function defaultState() {
@@ -77,8 +79,8 @@ const Core = (() => {
       },
       curve: { unit: 'mm', base: samplePoly(395, 600), sample: true, active: zeroCorr(), history: [], pending: null },
       tanks: [
-        { id: 'port', name: 'Port', color: '#A63A2A', capacity: 395, maxMm: 600, pipeMm: 30, pipeL: null },
-        { id: 'stbd', name: 'Stbd', color: '#1F6E5A', capacity: 395, maxMm: 600, pipeMm: 30, pipeL: null }
+        { id: 'port', name: 'Port', color: '#A63A2A', capacity: 395, maxMm: 700, pipeMm: 30, pipeL: null },
+        { id: 'stbd', name: 'Stbd', color: '#1F6E5A', capacity: 395, maxMm: 700, pipeMm: 30, pipeL: null }
       ],
       anchors: [],      // known (mm, litres) points: {id,tank,mm,L,t}
       events: [],       // {id,t,type:'dip'|'refuel',tank,mm,rough, pumped,afterMm,brim,group,price}
@@ -151,9 +153,29 @@ const Core = (() => {
   function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => kvSet('state', S).catch(() => {}), 150); }
   function saveNow() { clearTimeout(saveTimer); return kvSet('state', S); }
 
+  // once: put the boat's filling table into the volume fit; replace the sample polynomial with its fit
+  function preloadTable() {
+    if (S.curve.preloaded) return;
+    S.curve.preloaded = true;
+    S.tanks.forEach((t) => { if (t.maxMm === 600 && t.capacity === 395) t.maxMm = 700; });   // untouched defaults: the table goes to 67.5 cm
+    const T = S.curve.table || (S.curve.table = { mode: 'shared', edit: 'port', sets: {} });
+    ['shared', 'port', 'stbd'].forEach((k) => { if (!T.sets[k]) T.sets[k] = { rows: [], full: false, bounds: [], methods: ['spline'] }; });
+    const sh = T.sets.shared;
+    if (!sh.rows.some((r) => isFinite(r[0]) && isFinite(r[1]))) { sh.rows = BOAT_TABLE.map((r) => r.slice()); sh.full = false; sh.bounds = []; sh.methods = ['poly2']; T.mode = 'shared'; }
+    if (S.curve.sample && !S.curve.model && typeof TankFit !== 'undefined') {
+      const top = Math.max(S.tanks[0].maxMm, ...BOAT_TABLE.map((r) => r[0]));
+      const f = TankFit.fit(BOAT_TABLE, [], ['poly2'], top);
+      if (f.ok && TankFit.monotonic(f.model, 0, top)) {
+        S.curve.history.unshift({ t: Date.now(), corr: JSON.parse(JSON.stringify(S.curve.active)), base: S.curve.base.slice(), unit: S.curve.unit, model: null, note: 'sample polynomial' });
+        S.curve.model = { shared: f.model }; S.curve.sample = false; S.curve.active = zeroCorr(); S.curve.pending = null;
+      }
+    }
+  }
+
   async function init() {
     await openDb();
     S = migrate(await kvGet('state'));
+    preloadTable();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     refit();
     return S;

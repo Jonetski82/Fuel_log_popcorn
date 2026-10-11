@@ -682,7 +682,7 @@
   function tfResults() {
     const box = $('#tf-res'); if (!box) return;
     const set = tfSet(), tk = tfTank(), pts = tfPoints(set, tk), bounds = tfBounds(set), K = bounds.length + 1;
-    const range = [0, tk.maxMm], scale = tk.maxMm;
+    const top = Math.max(tk.maxMm, ...pts.map((p) => p[0])), range = [0, top], scale = top;
     while (set.methods.length < K) set.methods.push('spline');
     set.methods.length = K;
     if (set.bounds.length && (bounds.length < set.bounds.length || new Set(bounds).size < bounds.length)) { box.innerHTML = '<div class="warn">Enter each boundary depth (they must differ), or press Suggest boundaries.</div>'; return; }
@@ -701,15 +701,15 @@
     const e = TankFit.evaluate(pts, bounds, set.methods, scale, range);
     let chart = '', summary = '', canUse = false;
     if (e.ok) {
-      const steps = 80, mmAt = (i) => (tk.maxMm * i) / steps;
+      const steps = 80, mmAt = (i) => (top * i) / steps;
       const yMax = Math.ceil((tk.capacity * 1.05) / 100) * 100;
       chart = lineChart([
         { pts: Array.from({ length: steps + 1 }, (_, i) => [mmAt(i), Core.litres(tk, mmAt(i))]), color: '#9AA5AE', width: 2 },
         { pts: Array.from({ length: steps + 1 }, (_, i) => [mmAt(i), Math.max(0, TankFit.evalModel(e.model, mmAt(i)))]), color: '#E07A2E', width: 2.5 },
         { color: '#13212F', dots: pts.map((p) => [p[0], p[1], 4.5]), dotFill: '#E9B44C', dotStroke: '#13212F' }],
-        { label: 'Tank volume fit', xMin: 0, xMax: tk.maxMm, yMin: 0, yMax, xTicks: [0.25, 0.5, 0.75, 1].map((q) => q * tk.maxMm), yTicks: Array.from({ length: yMax / 100 + 1 }, (_, i) => i * 100), xFmt: (v) => rn(v), yFmt: (v) => fi(v), xUnit: RUL(),
+        { label: 'Tank volume fit', xMin: 0, xMax: top, yMin: 0, yMax, xTicks: [0.25, 0.5, 0.75, 1].map((q) => q * top), yTicks: Array.from({ length: yMax / 100 + 1 }, (_, i) => i * 100), xFmt: (v) => rn(v), yFmt: (v) => fi(v), xUnit: RUL(),
           vlines: bounds.map((b) => ({ x: b, color: '#4F5B66' })).concat(e.model.xmax < tk.maxMm - 5 ? [{ x: e.model.xmax, color: '#B8470F' }] : []) });
-      let dev = 0; for (let i = 0; i <= 60; i++) { const x = (tk.maxMm * i) / 60; dev = Math.max(dev, Math.abs(Math.max(0, TankFit.evalModel(e.model, x)) - Core.litres(tk, x))); }
+      let dev = 0; for (let i = 0; i <= 60; i++) { const x = (top * i) / 60; dev = Math.max(dev, Math.abs(Math.max(0, TankFit.evalModel(e.model, x)) - Core.litres(tk, x))); }
       summary = `Error when each reading is predicted from the others: ${isFinite(e.rms) ? '±' + f(e.rms) + ' L' : '–'} · differs from the curve in use by up to ${fi(dev)} L`;
       if (e.model.xmax < tk.maxMm - 5) summary += `<div class="warn" style="margin:8px 0 0 0">Measured up to ${rs(e.model.xmax)} (${fi(e.model.yhi)} L). Deeper than that the curve only continues the last slope — an estimate, shown right of the orange line.</div>`;
       canUse = e.mono;
@@ -998,7 +998,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 4.7.1 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 4.8 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -1196,7 +1196,8 @@
     'tf-method': (el) => { tfReadInputs(); tfSet().methods[+el.dataset.k] = el.dataset.m; Core.save(); tfResults(); },
     'tf-apply': () => {
       tfReadInputs(); const set = tfSet(), tk = tfTank();
-      const e = TankFit.evaluate(tfPoints(set, tk), tfBounds(set), set.methods, tk.maxMm, [0, tk.maxMm]);
+      const pts = tfPoints(set, tk), top = Math.max(tk.maxMm, ...pts.map((p) => p[0]));
+      const e = TankFit.evaluate(pts, tfBounds(set), set.methods, top, [0, top]);
       if (!e.ok || !e.mono) return toast('This fit cannot be used');
       const cur = S().curve.model, key = tfKey();
       const model = key === 'shared' ? { shared: e.model } : Object.assign({}, cur && !cur.shared ? cur : {}, { [key]: e.model });
