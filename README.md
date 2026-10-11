@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 4.9)
+# Popcorn Fuel Log (PWA, version 4.9.1)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -141,3 +141,9 @@ Tankit → Tilavuussovite:
 - Tankit-sivun Tunnetut pisteet -kortissa: pisteiden muokkaus (napauta), ehdotetut sovitteet virheineen ja kuvaaja, Ota käyttöön -painike.
 - Kun tankille lisätään omia pisteitä, ehdotukset lasketaan sen omista ja yhteisistä pisteistä.
 - Tilavuussovite-näkymä käyttää samoja pisteitä (aluejako ja sovitustavat).
+
+## Versio 4.9.1 – korjaus
+
+- Tankit-sivu ei enää jää tyhjäksi, jos tankfit.js puuttuu; sivu kertoo puuttuvasta tiedostosta.
+- Sovite-ehdotukset lasketaan sivun avauduttua ja tallennetaan, joten Tankit-sivu avautuu heti.
+- Jos jokin näkymä kaatuu, virhe näytetään ruudulla.

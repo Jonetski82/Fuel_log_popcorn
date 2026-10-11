@@ -91,11 +91,16 @@
     current = v; params = p;
     document.querySelectorAll('.view').forEach((el) => el.classList.toggle('active', el.id === 'v-' + v));
     document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.go === (v === 'refuel' && backOf.refuel === 'log' ? 'log' : NAV_OF[v])));
-    (R[v] || (() => {}))();
+    try { const r = (R[v] || (() => {}))(); if (r && r.catch) r.catch(showViewError); } catch (e) { showViewError(e); }
     $('#v-' + v).scrollTop = 0;
     Object.values(maps).forEach((m) => setTimeout(() => m.invalidateSize(), 50));
   }
 
+  function showViewError(e) {
+    console.error(e);
+    const el = $('#v-' + current); if (!el) return;
+    el.insertAdjacentHTML('afterbegin', `<div class="warn" style="margin-top:16px"><b>This screen could not be shown.</b> ${esc(e && e.message || e)}. Upload all app files to GitHub again (the full zip), then Settings → Check for app update.</div>`);
+  }
   // ---------- shared fragments ----------
   function tankBar(t) {
     const u = Core.usable(t.id);
@@ -571,17 +576,24 @@
   let kpOpen = false, kpEdit = null, kpTank = 'both';
   const sugCache = new Map();
   const kpKeyFor = (t) => (S().anchors.some((x) => x.tank === t.id) ? t.id : 'shared');
+  const fitReady = () => typeof TankFit !== 'undefined';
+  const sugKey = (key, tk) => { const pts = Core.anchorsFor(key); return key + '#' + Core.pointsKey(key) + '#' + Math.max(tk.maxMm, ...pts.map((x) => x.mm)); };
   function fitSuggestions(key, tk) {
     const pts = Core.anchorsFor(key).map((x) => [x.mm, x.L]);
-    if (pts.length < 2) return [];
+    if (pts.length < 2 || !fitReady()) return [];
     const top = Math.max(tk.maxMm, ...pts.map((p) => p[0])), range = [0, top];
-    const ck = key + '#' + Core.pointsKey(key) + '#' + top;
+    const ck = sugKey(key, tk);
     if (sugCache.has(ck)) return sugCache.get(ck);
+    const saved = S().curve.sugCache && S().curve.sugCache[ck];   // kept between app starts
+    if (saved) { sugCache.set(ck, saved); return saved; }
     const out = [];
     TankFit.METHODS.forEach((m) => { const e = TankFit.evaluate(pts, [], [m], top, range); if (e.ok && e.mono && isFinite(e.rms)) out.push({ methods: [m], bounds: [], rms: e.rms, model: e.model }); });
     if (pts.length >= 6) { const s = TankFit.suggestBounds(pts, 2, top, range); if (s) { const e = TankFit.evaluate(pts, s.bounds, s.methods, top, range); if (e.ok && e.mono && isFinite(e.rms)) out.push({ methods: s.methods, bounds: s.bounds, rms: e.rms, model: e.model }); } }
     out.sort((x, y) => x.rms - y.rms);
-    sugCache.set(ck, out); return out;
+    sugCache.set(ck, out);
+    const keep = {}; Object.entries(S().curve.sugCache || {}).slice(-3).forEach(([k, v]) => { keep[k] = v; }); keep[ck] = out;
+    S().curve.sugCache = keep; Core.save();
+    return out;
   }
   const curveRmsAt = (tk, pts) => Math.sqrt(pts.reduce((s, p) => s + (Core.litres(tk, p[0]) - p[1]) ** 2, 0) / Math.max(1, pts.length));
   function knownPointsCard(t) {
@@ -589,7 +601,13 @@
     const list = Core.anchorsFor(t.id).slice().sort((x, y) => x.mm - y.mm);
     const shown = kpOpen ? list : list.slice(0, 6);
     const rows = shown.map((x) => `<button class="item" data-act="kp-edit" data-id="${x.id}" style="padding:8px 12px;min-height:0"><span class="main"><b>${rs(x.mm)} = ${f(x.L)} L</b></span><span class="right"><span class="sub">${x.tank === 'both' ? 'both tanks' : esc(t.name)}</span></span></button>`).join('');
-    const sugg = fitSuggestions(key, t), pts = Core.anchorsFor(key).map((x) => [x.mm, x.L]);
+    const pts = Core.anchorsFor(key).map((x) => [x.mm, x.L]);
+    if (!fitReady()) return cardShell(t, rows, list, own, both, '<div class="warn" style="margin:8px 0 0 0">The fit calculation file (tankfit.js) is missing. Upload all app files to GitHub again.</div>');
+    if (list.length >= 2 && !sugCache.has(sugKey(key, t)) && !(S().curve.sugCache && S().curve.sugCache[sugKey(key, t)])) {   // compute after the page is on screen
+      setTimeout(() => { fitSuggestions(key, t); if (current === 'tanks' && tankSel === t.id) R.tanks(); }, 60);
+      return cardShell(t, rows, list, own, both, '<div class="sub" style="padding-top:10px">Calculating suggested fits…</div>');
+    }
+    const sugg = fitSuggestions(key, t);
     let sugHtml = '';
     if (sugg.length) {
       const top = Math.max(t.maxMm, ...pts.map((p) => p[0])), yMax = Math.ceil((Math.max(t.capacity, ...pts.map((p) => p[1])) * 1.05) / 100) * 100;
@@ -605,6 +623,9 @@
         <div style="padding:6px 0 0 0">${chart}</div><div class="sub" style="padding-left:30px"><b style="color:#E07A2E">orange = best suggestion</b> · grey = curve in use · dots = known points</div>
         <div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="go" data-v="tankfit">More options</button></div>`;
     } else if (list.length < 2) sugHtml = '<div class="sub" style="padding-top:8px">Add at least two points to get suggested fits.</div>';
+    return cardShell(t, rows, list, own, both, sugHtml);
+  }
+  function cardShell(t, rows, list, own, both, sugHtml) {
     return `<div class="card" id="kp-card" style="gap:0"><div class="cardhead"><div class="h">Known points</div><div class="sub">${own.length} ${esc(t.name)} · ${both.length} both tanks</div></div>
       <div class="sub" style="padding-bottom:4px">Depths where the litres are known, e.g. from filling an empty tank in measured steps. Tap a point to correct or delete it.</div>
       ${rows || '<div class="sub">No known points yet.</div>'}
@@ -613,7 +634,9 @@
       ${sugHtml}</div>`;
   }
   function kpNotice(t) {
-    const key = kpKeyFor(t), sugg = fitSuggestions(key, t); if (!sugg.length) return '';
+    const key = kpKeyFor(t);
+    if (!fitReady() || !(sugCache.has(sugKey(key, t)) || (S().curve.sugCache && S().curve.sugCache[sugKey(key, t)]))) return '';
+    const sugg = fitSuggestions(key, t); if (!sugg.length) return '';
     const pts = Core.anchorsFor(key).map((x) => [x.mm, x.L]), cur = curveRmsAt(t, pts), best = sugg[0];
     if (!(cur > best.rms + 1.5) || S().curve.kpDismissed === key + '#' + Core.pointsKey(key)) return '';
     return `<div class="card dark"><div class="cardhead"><div><div class="h">Better fit from known points</div><div class="sub">±${f(best.rms)} L instead of ±${f(cur)} L now</div></div><div style="display:flex;gap:6px"><button class="btn small" style="background:#fff;color:#13212F" data-act="kp-review">Review</button><button class="btn small" data-act="kp-dismiss" data-k="${key}">Later</button></div></div></div>`;
@@ -702,6 +725,7 @@
   }
   const tfBounds = (set) => set.bounds.filter(isFinite).slice().sort((x, y) => x - y);
   R.tankfit = () => {
+    if (!fitReady()) { $('#v-tankfit').innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="tanks">${IC.back}</button><div><div class="title">Tank volume fit</div></div></div><div class="warn">The fit calculation file (tankfit.js) is missing. Upload all app files to GitHub again.</div>`; return; }
     const T = tfState(), set = tfSet(), tk = tfTank(), c = S().curve;
     const nA = set.bounds.length + 1;
     const tabs = `<div class="seg"><button class="${tfTab === 'table' ? 'on' : ''}" data-act="tf-tab" data-t="table">From known points</button><button class="${tfTab === 'poly' ? 'on' : ''}" data-act="tf-tab" data-t="poly">Polynomial</button></div>`;
@@ -1054,7 +1078,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 4.9 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 4.9.1 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {

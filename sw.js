@@ -1,5 +1,5 @@
 // Service worker: app shell offline + map tile cache.
-const APP_CACHE = 'fuellog-app-v19';
+const APP_CACHE = 'fuellog-app-v20';
 const TILE_CACHE = 'fuellog-tiles-v1';
 const APP_FILES = [
   './', './index.html', './styles.css', './core.js', './sea.js', './sea-worker.js', './wind.js', './tankfit.js', './i18n.js', './app.js', './manifest.webmanifest',
