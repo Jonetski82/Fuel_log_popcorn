@@ -64,7 +64,8 @@ const Core = (() => {
     const m = maxMm;
     return [0, cap * 0.35 / m, cap * 0.65 * 3 / (m * m), -cap * 0.65 * 2 / (m * m * m), 0];
   }
-  const zeroCorr = () => ({ shared: [0, 0, 0, 0, 0], port: [0, 0, 0, 0, 0], stbd: [0, 0, 0, 0, 0] });
+  const zeroCorr = () => ({ shared: [0, 0, 0, 0, 0], port: [0, 0, 0, 0, 0], stbd: [0, 0, 0, 0, 0], scale: { port: 0, stbd: 0 } });
+  const scaleOf = (corr, tk) => (corr.scale && corr.scale[tk.id]) || 0;   // per-tank size factor: a slightly bigger tank holds x % more at every depth
   function defaultState() {
     return {
       version: 2,
@@ -104,6 +105,7 @@ const Core = (() => {
     }
     s.settings = Object.assign(d.settings, s.settings || {});
     ['curve', 'hull'].forEach((k) => { if (!s[k]) s[k] = d[k]; });
+    if (!('model' in s.curve)) s.curve.model = null;
     s.anchors = s.anchors || []; s.events = s.events || []; s.trips = s.trips || []; s.accuracy = s.accuracy || [];
     s.userStations = s.userStations || []; s.stationPrices = s.stationPrices || {};
     return s;
@@ -162,10 +164,16 @@ const Core = (() => {
   // =====================================================================
   const tank = (id) => S.tanks.find((t) => t.id === id);
   const phi = (tk, mm, k) => Math.pow(mm / tk.maxMm, k);
-  const baseL = (mm) => polyEval(S.curve.base, S.curve.unit === 'cm' ? mm / 10 : mm);
+  // base curve: a fitted table (shared or per tank, see tankfit.js) or the polynomial
+  const baseL = (mm, tk) => {
+    const m = S.curve.model;
+    if (m && typeof TankFit !== 'undefined') { const mod = m.shared || (tk && m[tk.id]); if (mod) return TankFit.evalModel(mod, mm); }
+    return polyEval(S.curve.base, S.curve.unit === 'cm' ? mm / 10 : mm);
+  };
   function litresWith(corr, tk, mm) {
     if (!isFinite(mm)) return NaN;
-    let L = baseL(mm);
+    const b = baseL(mm, tk);
+    let L = b * (1 + scaleOf(corr, tk));
     for (let k = 0; k < 5; k++) L += (corr.shared[k] + corr[tk.id][k]) * phi(tk, mm, k);
     return clamp(L, 0, tk.capacity * 1.1);
   }
@@ -183,7 +191,9 @@ const Core = (() => {
 
   // Equations for the curve fit. Each: {terms:[{tk, mm, sign}], rhs, sigma}
   //   sum(sign * L(tk, mm)) = rhs
-  function curveEquations() {
+  // withEmpty: add "an empty tank holds no fuel" for each tank. Refuels only measure differences
+  // (after − before = pumped), so without a fixed point the level of a tank's curve could drift.
+  function curveEquations(withEmpty) {
     const eqs = [];
     const seen = new Set();
     S.events.filter((e) => e.type === 'refuel').forEach((e) => {
@@ -196,37 +206,41 @@ const Core = (() => {
       mem.filter((m) => m.brim).forEach((m) => eqs.push({ terms: [{ tk: tank(m.tank), mm: m.afterMm, sign: 1 }], rhs: tank(m.tank).capacity, sigma: m.rough ? 9 : 3, kind: 'brim', t: m.t }));
     });
     S.anchors.forEach((a) => eqs.push({ terms: [{ tk: tank(a.tank), mm: a.mm, sign: 1 }], rhs: a.L, sigma: 2, kind: 'anchor', t: a.t }));
+    if (withEmpty && eqs.length) S.tanks.forEach((tk) => eqs.push({ terms: [{ tk, mm: 0, sign: 1 }], rhs: 0, sigma: 1, kind: 'empty', t: 0 }));
     return eqs;
   }
   function residuals(corr, eqs) { return eqs.map((q) => q.terms.reduce((s, tm) => s + tm.sign * litresWith(corr, tm.tk, tm.mm), 0) - q.rhs); }
   const rms = (r) => (r.length ? Math.sqrt(r.reduce((s, x) => s + x * x, 0) / r.length) : NaN);
 
   function fitCurve() {
-    const eqs = curveEquations();
+    const eqs = curveEquations(true);
     if (!eqs.length) return null;
-    const N = 15; // shared c0..c4, port c0..c4, stbd c0..c4
+    const N = 17; // shared c0..c4, port c0..c4, stbd c0..c4, port size factor, stbd size factor
     const H = Array.from({ length: N }, () => new Array(N).fill(0)), g = new Array(N).fill(0);
-    const off = { port: 5, stbd: 10 };
+    const off = { port: 5, stbd: 10 }, sIdx = { port: 15, stbd: 16 };
     eqs.forEach((q) => {
       const a = new Array(N).fill(0); let y = q.rhs;
       q.terms.forEach((tm) => {
-        y -= tm.sign * baseL(tm.mm);
+        const b = baseL(tm.mm, tm.tk);
+        y -= tm.sign * b;
+        a[sIdx[tm.tk.id]] += tm.sign * b;
         for (let k = 0; k < 5; k++) { const v = tm.sign * phi(tm.tk, tm.mm, k); a[k] += v; a[off[tm.tk.id] + k] += v; }
       });
       const w = 1 / (q.sigma * q.sigma);
       for (let i = 0; i < N; i++) { if (!a[i]) continue; g[i] += w * a[i] * y; for (let j = 0; j < N; j++) H[i][j] += w * a[i] * a[j]; }
     });
-    // priors: corrections should stay small over the tank depth (shared ~15 L, per tank ~4 L)
+    // priors: corrections should stay small over the tank depth (shared ~15 L, per tank ~10 L: tanks may differ by 5–10 L)
     const addPrior = (o, sig) => {
       for (let gi = 0; gi <= 10; gi++) {
         const u = gi / 10, a = [1, u, u * u, u ** 3, u ** 4], w = 1 / (sig * sig);
         for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) H[o + i][o + j] += w * a[i] * a[j];
       }
     };
-    addPrior(0, 15); addPrior(5, 4); addPrior(10, 4);
+    addPrior(0, 15); addPrior(5, 10); addPrior(10, 10);
+    H[15][15] += 1 / (0.05 * 0.05); H[16][16] += 1 / (0.05 * 0.05);   // tanks differ in size by a few % at most
     for (let i = 0; i < N; i++) H[i][i] += 1e-9;
     const x = solve(H, g).x;
-    const corr = { shared: x.slice(0, 5), port: x.slice(5, 10), stbd: x.slice(10, 15) };
+    const corr = { shared: x.slice(0, 5), port: x.slice(5, 10), stbd: x.slice(10, 15), scale: { port: x[15], stbd: x[16] } };
     // monotonic check
     let monotonic = true;
     S.tanks.forEach((tk) => { let prev = -Infinity; for (let i = 0; i <= 60; i++) { const L = litresWith(corr, tk, (tk.maxMm * i) / 60); if (L < prev - 0.05) monotonic = false; prev = L; } });
@@ -239,11 +253,11 @@ const Core = (() => {
         own = Math.max(own, Math.abs(polyEval(corr[tk.id], u)));
         shift = Math.max(shift, Math.abs(litresWith(corr, tk, mm) - litresWith(S.curve.active, tk, mm)));
       }
-      ownCurve[tk.id] = own > 3; maxShift[tk.id] = shift;
+      ownCurve[tk.id] = own > 3 || Math.abs(corr.scale[tk.id]) > 0.01; maxShift[tk.id] = shift;
       const ev = eventsFor(tk.id); const last = ev[ev.length - 1];
       levelChange[tk.id] = last ? litresWith(corr, tk, last.mm) - litresWith(S.curve.active, tk, last.mm) : 0;
     });
-    return { t: Date.now(), corr, monotonic, rmsBefore: rms(before), rmsAfter: rms(after), n: eqs.length, nRefuel: eqs.filter((q) => q.kind === 'refuel').length, ownCurve, levelChange, maxShift, residualsAfter: after, residualsBefore: before, eqs: eqs.map((q) => ({ kind: q.kind, t: q.t })) };
+    return { t: Date.now(), corr, monotonic, rmsBefore: rms(before), rmsAfter: rms(after), n: eqs.filter((q) => q.kind !== 'empty').length, nRefuel: eqs.filter((q) => q.kind === 'refuel').length, ownCurve, levelChange, maxShift, residualsAfter: after, residualsBefore: before, eqs: eqs.filter((q) => q.kind !== 'empty').map((q) => ({ kind: q.kind, t: q.t })) };
   }
   function proposeCurve() {
     const p = fitCurve();
@@ -251,9 +265,11 @@ const Core = (() => {
     save();
     return S.curve.pending;
   }
+  // everything that defines the curve, for the history list
+  const snapshot = (note) => ({ t: Date.now(), corr: JSON.parse(JSON.stringify(S.curve.active)), base: S.curve.base.slice(), unit: S.curve.unit, model: S.curve.model ? JSON.parse(JSON.stringify(S.curve.model)) : null, note });
   function acceptCurve() {
     const p = S.curve.pending; if (!p || !p.monotonic) return false;
-    S.curve.history.unshift({ t: Date.now(), corr: JSON.parse(JSON.stringify(S.curve.active)), note: 'replaced by fit of ' + p.n + ' readings' });
+    S.curve.history.unshift(snapshot('replaced by fit of ' + p.n + ' readings'));
     S.curve.history = S.curve.history.slice(0, 20);
     S.curve.active = p.corr; S.curve.pending = null; refit(); save(); return true;
   }
@@ -261,12 +277,28 @@ const Core = (() => {
   function restoreCurve(i) {
     const h = S.curve.history[i]; if (!h) return;
     S.curve.history.splice(i, 1);
-    S.curve.history.unshift({ t: Date.now(), corr: JSON.parse(JSON.stringify(S.curve.active)), note: 'before restore' });
-    S.curve.active = h.corr; refit(); save();
+    S.curve.history.unshift(snapshot('before restore'));
+    S.curve.active = h.corr;
+    if (h.base) { S.curve.base = h.base; S.curve.unit = h.unit || S.curve.unit; }
+    if ('model' in h) S.curve.model = h.model || null;
+    refit(); save();
   }
   function setBase(coeffs, unit) {
-    S.curve.history.unshift({ t: Date.now(), corr: JSON.parse(JSON.stringify(S.curve.active)), base: S.curve.base.slice(), unit: S.curve.unit, note: 'before new base polynomial' });
-    S.curve.base = coeffs; S.curve.unit = unit; S.curve.sample = false; S.curve.active = zeroCorr(); S.curve.pending = null; refit(); save();
+    S.curve.history.unshift(snapshot('before new base polynomial'));
+    S.curve.history = S.curve.history.slice(0, 20);
+    S.curve.base = coeffs; S.curve.unit = unit; S.curve.model = null; S.curve.sample = false; S.curve.active = zeroCorr(); S.curve.pending = null; refit(); save();
+  }
+  // depths covered by the readings of the table fit in use (null with the polynomial)
+  function measuredRange(tk) {
+    const m = S.curve.model, t = typeof tk === 'string' ? tank(tk) : tk;
+    const mod = m && (m.shared || m[t.id]);
+    return mod ? { minMm: mod.xmin, maxMm: mod.xmax, maxL: mod.yhi } : null;
+  }
+  // model: { shared: m } or { port: m, stbd: m } (a tank without its own model keeps the polynomial)
+  function setTableModel(model) {
+    S.curve.history.unshift(snapshot('before table fit'));
+    S.curve.history = S.curve.history.slice(0, 20);
+    S.curve.model = model; S.curve.sample = false; S.curve.active = zeroCorr(); S.curve.pending = null; refit(); save();
   }
 
   // =====================================================================
@@ -751,7 +783,7 @@ const Core = (() => {
     init, get state() { return S; }, save, saveNow, live, on: (f) => listeners.add(f),
     tank, litres, litresWith, baseL, unusableL, levelNow, usable, eventsFor, levelAfter, intervals, refit,
     lphEng, lphTotal, lpnm, lphSigma, lpnmSigma, economy, range, tripFuel, tripFuelTotal, tripMeasured,
-    fitCurve, proposeCurve, acceptCurve, rejectCurve, restoreCurve, setBase, curveEquations,
+    fitCurve, proposeCurve, acceptCurve, rejectCurve, restoreCurve, setBase, setTableModel, measuredRange, curveEquations,
     addDip, addRefuel, deleteEvent, dipKind, needsPreDip, summary, seasons, tripEngineNm, tripEngineH, addAnchor, deleteAnchor,
     seasonTable, cleanKnAt, rpmFor, hullStatus, addCleaning,
     startTrip, stopTrip, setPaused, setMode, setRpm, resumeIfActive, activeTrack, trackGet, deleteTrip,

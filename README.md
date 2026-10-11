@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 4.6.1)
+# Popcorn Fuel Log (PWA, version 4.7.1)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -110,3 +110,20 @@ Reserviasetus on poistettu. Käytettävä polttoaine = kaikki imuputken yläpuol
 - Lisää → Tankkausasemat → Päivitä tankkausasemat OpenStreetMapista: puhelin hakee asemat itse (ei vaadi GitHub-työnkulkua).
 - Vihreä merkki = veneiden tankkausasema (OSM-merkintä), valkoinen = tavallinen asema noin 200 m:n päässä vedestä.
 - Jos asemia ei ole ladattu, Kantama-näkymä näyttää latauspainikkeen.
+
+## Versio 4.7 – tankin tilavuussovite taulukosta
+
+Tankit → Tilavuussovite:
+- Lukemataulukko: syvyys (cm) ja litrat, rivejä voi lisätä ja poistaa; Täysi tankki -piste valinnaisena.
+- Yhteinen sovite molemmille tankeille tai kummallekin erikseen.
+- Sovitustavat: suorat viivat, pehmeä käyrä (ei koskaan laske), polynomi 2.–4. aste. Virhe näytetään jättämällä yksi lukema kerrallaan pois; ★ = tarkin.
+- Syvyysalueet: 1–3 aluetta, oma sovitustapa kullekin; rajat voi ehdottaa automaattisesti. Alueet liittyvät ilman hyppyä.
+- Käyttöönotto tekee sovitteesta tankkikäyrän pohjan; tankkaukset jatkavat tarkentamista. Aiemmat käyrät palautettavissa (myös polynomit ja sovitteet).
+- Polynomin syöttö on saman näkymän Polynomi-välilehdellä.
+
+## Versio 4.7.1 – tankkien erojen oppiminen
+
+- Tankkikohtainen korjaus saa poiketa yhteisestä käyrästä noin ±10 L (aiemmin ±4 L).
+- Uusi tankkikohtainen kokokerroin: jos toinen tankki on muutaman prosentin isompi, tankkaukset opettavat sen suoraan.
+- Tyhjässä tankissa (0 cm) on 0 L: kiintopiste molemmille tankeille.
+- Täysi tankki -piste ei ole enää oletuksena päällä; mitattujen syvyyksien yläpuolinen osa merkitään arvioksi.

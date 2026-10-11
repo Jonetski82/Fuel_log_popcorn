@@ -84,7 +84,7 @@
 
   // ---------- navigation ----------
   let current = 'helm', params = {};
-  const NAV_OF = { helm: 'helm', tripend: 'helm', predip: 'helm', range: 'helm', log: 'log', trips: 'trips', trip: 'trips', tripform: 'trips', curve: 'curve', tanks: 'tanks', refuel: 'tanks', more: 'more' };
+  const NAV_OF = { tankfit: 'tanks', helm: 'helm', tripend: 'helm', predip: 'helm', range: 'helm', log: 'log', trips: 'trips', trip: 'trips', tripform: 'trips', curve: 'curve', tanks: 'tanks', refuel: 'tanks', more: 'more' };
   let backOf = {};   // view -> view it was opened from
   function go(v, p = {}) {
     if ((v === 'refuel' || v === 'tripform') && current !== v) backOf[v] = current;
@@ -590,7 +590,7 @@
       <div class="top"><div><div class="title">Tanks</div><div class="sub">Ruler depth → litres</div></div><button class="btn small" data-act="edit-tank">Edit tank</button></div>
       <div class="seg">${s.tanks.map((k) => `<button class="${k.id === tankSel ? 'on' : ''}" data-act="tank-sel" data-t="${k.id}">${esc(k.name)}</button>`).join('')}</div>
       <div class="grid3">
-        <div class="tile"><div class="lbl">Now, est.</div><div class="num mid">${fi(u.L)} <span class="unit">L</span></div><div class="hint">${last ? 'dip ' + rs(last.mm) : 'no dip'}</div></div>
+        <div class="tile"><div class="lbl">Now, est.</div><div class="num mid">${fi(u.L)} <span class="unit">L</span></div><div class="hint">${last ? 'dip ' + rs(last.mm) : 'no dip'}${last && Core.measuredRange(t) && last.mm > Core.measuredRange(t).maxMm + 5 ? '<br><b style="color:#B8470F">above measured depths — estimate</b>' : ''}</div></div>
         <div class="tile dark"><div class="lbl">Usable</div><div class="num mid">${fi(u.usable)} <span class="unit">L</span></div><div class="hint">above the suction pipe</div></div>
         <div class="tile"><div class="lbl">Unusable</div><div class="num mid">${fi(u.dead)} <span class="unit">L</span></div><div class="hint">${byL ? 'set in litres' : 'below ' + rs(t.pipeMm)}</div></div>
       </div>
@@ -600,13 +600,13 @@
       <div class="card" style="padding:12px 6px 10px 2px">
         <div class="cardhead" style="padding-left:10px"><div class="h">Tank curve</div><div class="sub">${eqs.length} readings used</div></div>
         ${curveChart(t)}
-        <div class="sub" style="padding-left:30px">grey dashed = your polynomial · solid = current curve · black ticks = refuels (before → after) · vertical = suction pipe</div>
-        <div class="btnrow" style="padding:6px 10px 0 10px"><button class="btn small grow" data-act="base-sheet">Polynomial</button><button class="btn small grow" data-act="add-anchor">Known point</button></div>
+        <div class="sub" style="padding-left:30px">grey dashed = base curve (table fit or polynomial) · solid = current curve · black ticks = refuels (before → after) · vertical = suction pipe</div>
+        <div class="btnrow" style="padding:6px 10px 0 10px"><button class="btn small grow dark" data-act="go" data-v="tankfit">Volume fit</button><button class="btn small grow" data-act="add-anchor">Known point</button></div>
       </div>
-      ${s.curve.history.length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Earlier curves</div></div>${s.curve.history.map((h, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;gap:8px"><span class="sub">${dtstr(h.t)} · ${esc(h.note || '')}</span>${h.base ? '' : `<button class="btn small" data-act="restore-curve" data-i="${i}">Restore</button>`}</div>`).join('')}</div>` : ''}
+      ${s.curve.history.length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Earlier curves</div></div>${s.curve.history.map((h, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;gap:8px"><span class="sub">${dtstr(h.t)} · ${esc(h.note || '')}</span><button class="btn small" data-act="restore-curve" data-i="${i}">Restore</button></div>`).join('')}</div>` : ''}
       ${s.anchors.filter((a) => a.tank === t.id).length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Known points</div></div>${s.anchors.filter((a) => a.tank === t.id).map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px"><span>${rs(a.mm)} = ${f(a.L)} L</span><button class="iconbtn" aria-label="Delete point" data-act="del-anchor" data-id="${a.id}">${IC.x}</button></div>`).join('')}</div>` : ''}
       <div class="btnrow"><button class="btn small grow" data-act="go" data-v="log">Refuel and dip log</button></div>
-      ${s.curve.sample ? '<div class="warn">The tank polynomial is a sample. Tap Polynomial to enter yours, and Edit tank for capacity and suction-pipe height.</div>' : ''}`;
+      ${s.curve.sample ? '<div class="warn">The tank curve is a sample. Tap Volume fit to enter your readings or polynomial, and Edit tank for capacity and suction-pipe height.</div>' : ''}`;
   };
   function proposalSheet() {
     const p = S().curve.pending; if (!p) return;
@@ -618,6 +618,114 @@
       </div>
       ${S().tanks.map((t) => `<div class="card" style="padding:8px 4px 4px 0"><div class="sub" style="padding-left:12px;color:${t.color}">${esc(t.name)}: solid = current · orange dashed = proposed</div>${curveChart(t, { proposal: p })}</div>`).join('')}
       <div class="btnrow"><button class="btn grow" data-act="reject-curve">Keep current</button><button class="btn primary" data-act="accept-curve" ${p.monotonic ? '' : 'disabled'}>Use new curve</button></div>`);
+  }
+
+
+  // TANK VOLUME FIT: readings table (depth → litres) with a fit method per depth area, or the polynomial
+  let tfTab = 'table', tfTimer = null;
+  const TF_LABEL = { linear: 'Straight lines', spline: 'Smooth curve', poly2: 'Polynomial 2', poly3: 'Polynomial 3', poly4: 'Polynomial 4' };
+  const newSet = () => ({ rows: [], full: false, bounds: [], methods: ['spline'] });
+  function tfState() {
+    const c = S().curve;
+    if (!c.table) c.table = { mode: 'shared', edit: 'port', sets: { shared: newSet(), port: newSet(), stbd: newSet() } };
+    return c.table;
+  }
+  const tfKey = () => (tfState().mode === 'shared' ? 'shared' : tfState().edit);
+  const tfSet = () => tfState().sets[tfKey()];
+  const tfTank = () => Core.tank(tfKey() === 'shared' ? 'port' : tfKey());
+  function tfPoints(set, tk) {
+    const pts = set.rows.filter((r) => isFinite(r[0]) && isFinite(r[1])).map((r) => [r[0], r[1]]);
+    if (set.full && !pts.some((p) => Math.abs(p[0] - tk.maxMm) < 1)) pts.push([tk.maxMm, tk.capacity]);
+    return pts;
+  }
+  const tfBounds = (set) => set.bounds.filter(isFinite).slice().sort((x, y) => x - y);
+  R.tankfit = () => {
+    const T = tfState(), set = tfSet(), tk = tfTank(), c = S().curve;
+    if (!set.rows.length) {   // start from the known points of that tank, plus empty rows
+      S().anchors.filter((x) => tfKey() === 'shared' || x.tank === tfKey()).forEach((x) => set.rows.push([x.mm, x.L]));
+      while (set.rows.length < 4) set.rows.push([NaN, NaN]);
+    }
+    const nA = set.bounds.length + 1;
+    const tabs = `<div class="seg"><button class="${tfTab === 'table' ? 'on' : ''}" data-act="tf-tab" data-t="table">Readings table</button><button class="${tfTab === 'poly' ? 'on' : ''}" data-act="tf-tab" data-t="poly">Polynomial</button></div>`;
+    const now = c.model ? (c.model.shared ? 'table fit (both tanks)' : 'table fit (' + Core.ENG.filter((e) => c.model[e]).map((e) => Core.tank(e).name).join(', ') + ')') : (c.sample ? 'sample polynomial' : 'polynomial');
+    let body;
+    if (tfTab === 'poly') {
+      sheetUnit = c.unit;
+      body = `<div class="card"><div class="sub">Shared by both tanks: litres = c0 + c1·x + c2·x² + c3·x³ + c4·x⁴, where x is the ruler depth. Paste values like 1.23e-5. Saving resets the refuel corrections; the old curve stays under Earlier curves.</div>
+          <div class="seg" style="margin:0"><button class="${c.unit === 'mm' ? 'on' : ''}" data-act="base-unit" data-u="mm">x in mm</button><button class="${c.unit === 'cm' ? 'on' : ''}" data-act="base-unit" data-u="cm">x in cm</button></div>
+          ${c.base.map((v, i) => `<div class="field"><label for="bc${i}">c${i}</label><div class="inbox wide" style="width:65%"><input id="bc${i}" inputmode="decimal" value="${v}"></div></div>`).join('')}
+        </div>
+        <div class="btnrow"><button class="btn primary grow" data-act="save-base">Save polynomial</button></div>`;
+    } else {
+      body = `
+      <div class="card"><div class="cardhead"><div class="h">Applies to</div></div>
+        <div class="seg" style="margin:0"><button class="${T.mode === 'shared' ? 'on' : ''}" data-act="tf-mode" data-m="shared">Both tanks (shared)</button><button class="${T.mode === 'separate' ? 'on' : ''}" data-act="tf-mode" data-m="separate">Each tank separately</button></div>
+        ${T.mode === 'separate' ? `<div class="seg" style="margin:0">${S().tanks.map((t) => `<button class="${T.edit === t.id ? 'on' : ''}" data-act="tf-edit" data-t="${t.id}">${esc(t.name)}</button>`).join('')}</div>` : ''}
+      </div>
+      <div class="card"><div class="cardhead"><div class="h">Readings</div><div class="sub">${RUL()} · L</div></div>
+        <div class="sub">Ruler depth and the litres in the tank at that depth, for example while filling an empty tank in measured steps.</div>
+        ${set.rows.map((r, i) => `<div class="field"><div class="inbox"><input inputmode="decimal" id="tf-d${i}" data-tf="${i}" value="${isFinite(r[0]) ? rn(r[0]) : ''}" aria-label="Depth row ${i + 1}"><span>${RUL()}</span></div><div class="inbox"><input inputmode="decimal" id="tf-l${i}" data-tf="${i}" value="${isFinite(r[1]) ? dec(String(+r[1].toFixed(1))) : ''}" aria-label="Litres row ${i + 1}"><span>L</span></div><button class="iconbtn" aria-label="Delete row" data-act="tf-del" data-i="${i}">${IC.x}</button></div>`).join('')}
+        <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="tf-add">Add row</button></div>
+        <div class="check"><input type="checkbox" id="tf-full" ${set.full ? 'checked' : ''}><label for="tf-full">Full tank: ${rs(tk.maxMm)} = ${fi(tk.capacity)} L<small style="display:block;color:#4F5B66">only if you have measured it</small></label></div>
+      </div>
+      <div class="card"><div class="cardhead"><div class="h">Depth areas</div></div>
+        <div class="sub">A tank with a narrow bottom often needs one method for the bottom and another for the straight upper part.</div>
+        <div class="seg" style="margin:0">${[1, 2, 3].map((n) => `<button class="${nA === n ? 'on' : ''}" data-act="tf-areas" data-n="${n}">${n === 1 ? 'One area' : n + ' areas'}</button>`).join('')}</div>
+        ${nA > 1 ? `${set.bounds.map((b, k) => `<div class="field"><label for="tf-b${k}">Boundary ${k + 1}</label><div class="inbox"><input inputmode="decimal" id="tf-b${k}" data-tfb="${k}" value="${isFinite(b) ? rn(b) : ''}"><span>${RUL()}</span></div></div>`).join('')}
+          <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="tf-suggest">Suggest boundaries</button></div>` : ''}
+      </div>
+      <div id="tf-res"></div>`;
+    }
+    $('#v-tankfit').innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="tanks">${IC.back}</button><div><div class="title">Tank volume fit</div><div class="sub">In use: ${now}</div></div></div>${tabs}${body}`;
+    if (tfTab === 'table') tfResults();
+  };
+  function tfResults() {
+    const box = $('#tf-res'); if (!box) return;
+    const set = tfSet(), tk = tfTank(), pts = tfPoints(set, tk), bounds = tfBounds(set), K = bounds.length + 1;
+    const range = [0, tk.maxMm], scale = tk.maxMm;
+    while (set.methods.length < K) set.methods.push('spline');
+    set.methods.length = K;
+    if (set.bounds.length && (bounds.length < set.bounds.length || new Set(bounds).size < bounds.length)) { box.innerHTML = '<div class="warn">Enter each boundary depth (they must differ), or press Suggest boundaries.</div>'; return; }
+    if (pts.length < 2) { box.innerHTML = '<div class="warn">Enter at least two readings.</div>'; return; }
+    const edges = [0].concat(bounds, [tk.maxMm]);
+    const areas = Array.from({ length: K }, (_, k) => {
+      const o = TankFit.options(pts, bounds, set.methods, k, scale, range);
+      const good = o.filter((x) => x.ok && x.mono && x.complete && isFinite(x.rms));
+      const best = good.length ? good.reduce((b, x) => (x.rms < b.rms - 0.1 ? x : b), good[0]).method : null;
+      const chip = (x) => {
+        const why = !x.ok ? (x.reason === 'points' ? 'too few readings' : 'fix the other area first') : !x.mono ? 'litres would fall' : x.complete && isFinite(x.rms) ? '±' + f(x.rms) + ' L' : 'error n/a';
+        return `<button class="chip ${set.methods[k] === x.method ? 'on' : ''}" data-act="tf-method" data-k="${k}" data-m="${x.method}" ${x.ok && x.mono ? '' : 'disabled'} style="${x.ok && x.mono ? '' : 'opacity:.45'}">${TF_LABEL[x.method]}${x.method === best ? ' ★' : ''} · ${why}</button>`;
+      };
+      return `<div style="padding-top:6px"><b>${K > 1 ? 'Area ' + (k + 1) + ': ' : ''}${rs(edges[k])} – ${rs(edges[k + 1])}</b><div class="chips" style="padding:6px 0 0 0">${o.map(chip).join('')}</div></div>`;
+    }).join('');
+    const e = TankFit.evaluate(pts, bounds, set.methods, scale, range);
+    let chart = '', summary = '', canUse = false;
+    if (e.ok) {
+      const steps = 80, mmAt = (i) => (tk.maxMm * i) / steps;
+      const yMax = Math.ceil((tk.capacity * 1.05) / 100) * 100;
+      chart = lineChart([
+        { pts: Array.from({ length: steps + 1 }, (_, i) => [mmAt(i), Core.litres(tk, mmAt(i))]), color: '#9AA5AE', width: 2 },
+        { pts: Array.from({ length: steps + 1 }, (_, i) => [mmAt(i), Math.max(0, TankFit.evalModel(e.model, mmAt(i)))]), color: '#E07A2E', width: 2.5 },
+        { color: '#13212F', dots: pts.map((p) => [p[0], p[1], 4.5]), dotFill: '#E9B44C', dotStroke: '#13212F' }],
+        { label: 'Tank volume fit', xMin: 0, xMax: tk.maxMm, yMin: 0, yMax, xTicks: [0.25, 0.5, 0.75, 1].map((q) => q * tk.maxMm), yTicks: Array.from({ length: yMax / 100 + 1 }, (_, i) => i * 100), xFmt: (v) => rn(v), yFmt: (v) => fi(v), xUnit: RUL(),
+          vlines: bounds.map((b) => ({ x: b, color: '#4F5B66' })).concat(e.model.xmax < tk.maxMm - 5 ? [{ x: e.model.xmax, color: '#B8470F' }] : []) });
+      let dev = 0; for (let i = 0; i <= 60; i++) { const x = (tk.maxMm * i) / 60; dev = Math.max(dev, Math.abs(Math.max(0, TankFit.evalModel(e.model, x)) - Core.litres(tk, x))); }
+      summary = `Error when each reading is predicted from the others: ${isFinite(e.rms) ? '±' + f(e.rms) + ' L' : '–'} · differs from the curve in use by up to ${fi(dev)} L`;
+      if (e.model.xmax < tk.maxMm - 5) summary += `<div class="warn" style="margin:8px 0 0 0">Measured up to ${rs(e.model.xmax)} (${fi(e.model.yhi)} L). Deeper than that the curve only continues the last slope — an estimate, shown right of the orange line.</div>`;
+      canUse = e.mono;
+    }
+    box.innerHTML = `<div class="card"><div class="cardhead"><div class="h">Fit method</div><div class="sub">★ = most accurate</div></div>${areas}
+        <div class="sub" style="padding-top:6px">Straight lines and Smooth curve go through every reading; a polynomial evens out reading errors. The error is measured by leaving out one reading at a time.</div></div>
+      ${e.ok ? `<div class="card" style="padding:12px 6px 8px 2px">${chart}<div class="sub" style="padding-left:30px"><b style="color:#E07A2E">orange = new fit</b> · grey = curve in use · dots = your readings${bounds.length ? ' · grey vertical = area boundaries' : ''}${e.model.xmax < tk.maxMm - 5 ? ' · orange vertical = deepest reading' : ''}</div></div>
+      <div class="sub" style="padding:0 16px">${summary}</div>` : `<div class="warn">${K > 1 ? 'An area has too few readings for its method.' : 'Too few readings for this method.'}</div>`}
+      ${e.ok && !e.mono ? '<div class="warn">With this method the litres would fall as the depth grows somewhere. Choose another method.</div>' : ''}
+      <div class="btnrow"><button class="btn primary grow" data-act="tf-apply" ${canUse ? '' : 'disabled'}>Use this curve${tfKey() === 'shared' ? ' for both tanks' : ' for ' + esc(tk.name)}</button></div>
+      <div class="note">Using it makes this the base of the tank curve. Refuels keep refining it as before, and the old curve stays under Tanks → Earlier curves.</div>`;
+  }
+  function tfReadInputs() {
+    const set = tfSet();
+    set.rows = set.rows.map((r, i) => { const d = $('#tf-d' + i), l = $('#tf-l' + i); return [d ? rv(d.value) : r[0], l ? Core.num(l.value) : r[1]]; });
+    set.bounds = set.bounds.map((b, k) => { const el = $('#tf-b' + k); return el ? rv(el.value) : b; });
   }
 
   // REFUEL
@@ -890,7 +998,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 4.6.1 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 4.7.1 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -1066,14 +1174,33 @@
       if (isFinite(pL)) t.pipeL = pL; else { t.pipeL = null; t.pipeMm = isFinite(pmm) ? pmm : 0; }
       Core.refit(); Core.save(); closeSheet(); toast('Tank saved'); R.tanks();
     },
-    'base-sheet': () => {
-      const c = S().curve; sheetUnit = c.unit;
-      sheet(`<h3>Tank polynomial</h3><p>Shared by both tanks: litres = c0 + c1·x + c2·x² + c3·x³ + c4·x⁴, where x is the ruler depth. Paste values like 1.23e-5. Saving resets the refuel corrections; the old curve stays under Earlier curves.</p>
-        <div class="card">
-          <div class="seg" style="margin:0"><button class="${c.unit === 'mm' ? 'on' : ''}" data-act="base-unit" data-u="mm">x in mm</button><button class="${c.unit === 'cm' ? 'on' : ''}" data-act="base-unit" data-u="cm">x in cm</button></div>
-          ${c.base.map((v, i) => `<div class="field"><label for="bc${i}">c${i}</label><div class="inbox wide" style="width:65%"><input id="bc${i}" inputmode="decimal" value="${v}"></div></div>`).join('')}
-        </div>
-        <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="save-base">Save polynomial</button></div>`);
+    'base-sheet': () => { tfTab = 'poly'; go('tankfit'); },
+    'tf-tab': (el) => { tfTab = el.dataset.t; R.tankfit(); },
+    'tf-mode': (el) => { tfReadInputs(); tfState().mode = el.dataset.m; Core.save(); R.tankfit(); },
+    'tf-edit': (el) => { tfReadInputs(); tfState().edit = el.dataset.t; Core.save(); R.tankfit(); },
+    'tf-add': () => { tfReadInputs(); tfSet().rows.push([NaN, NaN]); Core.save(); R.tankfit(); setTimeout(() => { const i = $('#tf-d' + (tfSet().rows.length - 1)); if (i) i.focus(); }, 50); },
+    'tf-del': (el) => { tfReadInputs(); tfSet().rows.splice(+el.dataset.i, 1); Core.save(); R.tankfit(); },
+    'tf-areas': (el) => {
+      tfReadInputs(); const set = tfSet(), n = +el.dataset.n;
+      set.bounds = set.bounds.slice(0, n - 1); while (set.bounds.length < n - 1) set.bounds.push(NaN);
+      if (n > 1 && set.bounds.some((b) => !isFinite(b))) { const s = TankFit.suggestBounds(tfPoints(set, tfTank()), n, tfTank().maxMm, [0, tfTank().maxMm]); if (s) { set.bounds = s.bounds; set.methods = s.methods; } }
+      Core.save(); R.tankfit();
+    },
+    'tf-suggest': (el) => {
+      tfReadInputs(); const set = tfSet(), tk = tfTank(); el.disabled = true; el.textContent = 'Calculating…';
+      setTimeout(() => {
+        const s = TankFit.suggestBounds(tfPoints(set, tk), set.bounds.length + 1, tk.maxMm, [0, tk.maxMm]);
+        if (s) { set.bounds = s.bounds; set.methods = s.methods; Core.save(); R.tankfit(); } else { toast('Too few readings to split into areas'); R.tankfit(); }
+      }, 30);
+    },
+    'tf-method': (el) => { tfReadInputs(); tfSet().methods[+el.dataset.k] = el.dataset.m; Core.save(); tfResults(); },
+    'tf-apply': () => {
+      tfReadInputs(); const set = tfSet(), tk = tfTank();
+      const e = TankFit.evaluate(tfPoints(set, tk), tfBounds(set), set.methods, tk.maxMm, [0, tk.maxMm]);
+      if (!e.ok || !e.mono) return toast('This fit cannot be used');
+      const cur = S().curve.model, key = tfKey();
+      const model = key === 'shared' ? { shared: e.model } : Object.assign({}, cur && !cur.shared ? cur : {}, { [key]: e.model });
+      confirmSheet('Use this tank curve?', 'Tank levels, consumption curves and range are recalculated with it. The current curve stays under Earlier curves.', 'Use', () => { Core.setTableModel(model); toast('New tank curve in use'); go('tanks'); });
     },
     'base-unit': (el) => { sheetUnit = el.dataset.u; el.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el)); },
     'save-base': () => {
@@ -1082,7 +1209,7 @@
       const t = Core.tank(tankSel);
       const full = Core.polyEval(co, sheetUnit === 'cm' ? t.maxMm / 10 : t.maxMm);
       Core.setBase(co, sheetUnit); closeSheet();
-      toast('Saved. Full-tank depth gives ' + fi(full) + ' L (capacity ' + fi(t.capacity) + ' L)', 4500); R.tanks();
+      toast('Saved. Full-tank depth gives ' + fi(full) + ' L (capacity ' + fi(t.capacity) + ' L)', 4500); go('tanks');
     },
     'add-anchor': () => sheet(`<h3>Known point</h3><p>A depth where you know the litres exactly, e.g. after filling an empty tank in measured steps.</p>
         <div class="card"><div class="field"><label for="ac-mm">Depth</label><div class="inbox"><input id="ac-mm" inputmode="decimal"><span>${RUL()}</span></div></div>
@@ -1191,11 +1318,13 @@
     if (el.dataset.dip) dipPreview();
     if (el.dataset.rf) refuelCalc();
     if (el.dataset.mt) mtCalc();
+    if (el.dataset.tf !== undefined || el.dataset.tfb !== undefined) { clearTimeout(tfTimer); tfTimer = setTimeout(() => { tfReadInputs(); Core.save(); tfResults(); }, 350); }
     if (el.dataset.sdip) { const t = Core.tank(el.dataset.sdip), mm = rv(el.value), Lv = Core.litres(t, mm); $('#sdL-' + t.id).textContent = isFinite(Lv) ? '= ' + fi(Lv) + ' L' + (mm < t.pipeMm ? ' · below suction pipe!' : '') : ' '; }
   });
   document.addEventListener('change', async (e) => {
     const el = e.target, act = el.dataset.act, s = S().settings;
     if (el.dataset.rf) refuelCalc();
+    if (el.id === 'tf-full') { tfReadInputs(); tfSet().full = el.checked; Core.save(); tfResults(); }
     if (act === 'seamarks') { s.seamarks = el.checked; Core.save(); refreshBaseLayers(); }
     if (act === 'tlayer') { s.traficomLayer = el.value; Core.save(); refreshBaseLayers(); }
     if (act === 'nlskey') { s.nlsKey = el.value.trim(); Core.save(); refreshBaseLayers(); }
