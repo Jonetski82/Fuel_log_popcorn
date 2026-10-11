@@ -720,7 +720,7 @@
       ${!r ? '<div class="warn">Dip both tanks once (Tanks → Log dip) to see the range.</div>' : `
       <div class="chips" style="padding-top:8px"><button class="chip ${rangeSpeed === 'now' ? 'on' : ''}" data-act="range-speed" data-s="now">At ${f(nowKn)} kn ${lv.sogAvg >= 2 ? '(now)' : ''}</button><button class="chip ${rangeSpeed === 'eco' ? 'on' : ''}" data-act="range-speed" data-s="eco">At ${f(ecoKn)} kn (economy)</button></div>
       <div class="card dark"><div class="cardhead"><div><div class="sub">${rangeMode === 'round' ? 'Turn back before' : 'Reach'}</div><div class="num" style="font-size:30px">${fi(nmv(r))} NM</div><div class="sub">${f(r.lpnm)} L/NM at ${f(kn)} kn</div></div><div style="text-align:right;max-width:170px" class="sub">${rangeEng === 'both' ? 'Limited by ' + esc(Core.tank(r.limit).name) + ' tank' + (isFinite(r.otherNm) ? ` (other lasts ${fi(rangeMode === 'round' ? r.otherNm / 2 : r.otherNm)} NM)` : '') : 'Only the ' + esc(Core.tank(rangeEng).name) + ' tank is used'}<br>Dashed: ${fi(nmv(r2))} NM at ${f(alt)} kn</div></div></div>`}`;
-    $('#range-note').textContent = `Green pins = fuel stations (tap for price, distance and fuel needed). Usable fuel excludes what lies below the suction pipe. Open water avoids land and water shallower than the ${f(s.settings.draftM)} m draft limit (100 m grid); Fairways follows marked fairway lines. Planning aid only — wind and sea add to consumption.`;
+    $('#range-note').textContent = `Green pins = boat fuel stations, white = fuel station by the water (tap for price, distance and fuel needed). Usable fuel excludes what lies below the suction pipe. Open water avoids land and water shallower than the ${f(s.settings.draftM)} m draft limit (100 m grid); Fairways follows marked fairway lines. Planning aid only — wind and sea add to consumption.`;
     const m = maps.range; m._over.clearLayers(); clearRoute();
     const man = s.settings.rangeStart;
     const c = man ? [man.lat, man.lon] : lv.fix ? [lv.fix.lat, lv.fix.lon] : null;
@@ -728,8 +728,9 @@
       <button class="chip ${man ? '' : 'on'}" data-act="range-start-gps">${lv.fix ? 'Boat (GPS)' : 'GPS – no position'}</button>
       ${man ? '<button class="chip on" data-act="range-start-gps">Chosen point ✕</button>' : '<span class="sub">or long-press the map</span>'}</div>`;
     rangeCtx = { r, r2, kn, alt, c, nmv, err: null };
-    if (!r) return;
     drawStations();
+    if (!allStations().length) $('#range-dyn').insertAdjacentHTML('afterbegin', `<div class="warn">No fuel stations loaded yet.<div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow dark" data-act="fuel-update">Load fuel stations from OpenStreetMap</button></div><div class="sub" id="fuel-out"></div></div>`);
+    if (!r) return;
     if (!c) { rangeCtx.err = 'nostart'; setRangeStatus('No GPS position. Long-press the map (or tap it and choose "Start from here") to set a start point.'); return; }
     L.marker(c, { icon: man ? startIcon() : boatIcon(lv.fix ? lv.fix.heading || 0 : 0), interactive: false, zIndexOffset: 1000 }).addTo(m._over);
     m.invalidateSize(); m.fitBounds(L.latLng(c).toBounds(Math.max(nmv(r), nmv(r2) || 0) * 1852 * 2.1));
@@ -776,12 +777,13 @@
   }
   const PUMP = '<path d="M7 21V6.5A1.5 1.5 0 0 1 8.5 5h6A1.5 1.5 0 0 1 16 6.5V21M5.5 21h12M9 8.5h5v3.5H9zM16 10l2.4 1.6a1 1 0 0 1 .4.8V17a1.2 1.2 0 0 0 2.4 0v-6.2l-2.3-2.6" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>';
   function fuelIcon(st, zoom) {
-    if (zoom < 11) return L.divIcon({ className: 'fuel-pin', iconSize: [24, 24], iconAnchor: [12, 12], html: `<svg width="24" height="24" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35))"><circle cx="12" cy="12" r="10.5" fill="#0E6B3A" stroke="#fff" stroke-width="2"/><g transform="translate(3.6 3.4) scale(.7)">${PUMP}</g></svg>` });
+    if (zoom < 11) return L.divIcon({ className: 'fuel-pin', iconSize: [24, 24], iconAnchor: [12, 12], html: `<svg width="24" height="24" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35))"><circle cx="12" cy="12" r="10.5" fill="${st.near ? '#fff' : '#0E6B3A'}" stroke="${st.near ? '#0E6B3A' : '#fff'}" stroke-width="2"/><g transform="translate(3.6 3.4) scale(.7)">${st.near ? PUMP.replace(/#fff/g, '#0E6B3A') : PUMP}</g></svg>` });
     const lp = lastPrice(st.id), w = 64;
     const tag = lp ? `<div style="margin-bottom:1px;padding:1px 6px;border-radius:9px;background:#fff;border:1.5px solid #0E6B3A;color:#0E6B3A;font:700 12px 'Barlow Semi Condensed',Barlow,sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)">${f(lp.price, 2)} €</div>` : '';
     const h = lp ? 66 : 46;   // price tag sits above the pin, the tip marks the station
+    const fill = st.near ? '#fff' : '#0E6B3A', pump = st.near ? PUMP.replace(/#fff/g, '#0E6B3A') : PUMP;
     return L.divIcon({ className: 'fuel-pin', iconSize: [w, h], iconAnchor: [w / 2, h - 1], html: `<div style="display:flex;flex-direction:column;align-items:center;width:${w}px">${tag}
-      <svg width="36" height="46" viewBox="0 0 36 46" style="filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))"><path d="M18 45C18 45 3 28.5 3 17.5a15 15 0 0 1 30 0C33 28.5 18 45 18 45Z" fill="#0E6B3A" stroke="#fff" stroke-width="2.5"/><g transform="translate(6.5 5)">${PUMP}</g></svg></div>` });
+      <svg width="36" height="46" viewBox="0 0 36 46" style="filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))"><path d="M18 45C18 45 3 28.5 3 17.5a15 15 0 0 1 30 0C33 28.5 18 45 18 45Z" fill="${fill}" stroke="${st.near ? '#0E6B3A' : '#fff'}" stroke-width="2.5"/><g transform="translate(6.5 5)">${pump}</g></svg></div>` });
   }
   let stationLayer = null, openStation = null;
 
@@ -798,7 +800,7 @@
     openStation = st; clearRoute();
     const lp = lastPrice(st.id), area = S().settings.rangeArea;
     const info = [st.operator && st.operator !== st.name ? esc(st.operator) : '', st.fuels && st.fuels.length ? esc(st.fuels.join(', ').replace(/_/g, ' ')) : '', st.hours ? esc(st.hours) : ''].filter(Boolean).join(' · ');
-    const head = `<div class="cardhead"><div><div class="h">${esc(st.name)}</div><div class="sub">${info || (st.user ? 'your own station' : 'OpenStreetMap')}</div></div>
+    const head = `<div class="cardhead"><div><div class="h">${esc(st.name)}</div><div class="sub">${info || (st.user ? 'your own station' : 'OpenStreetMap')}</div>${st.near ? '<div class="sub" style="color:#B8470F">Fuel station by the water — not marked as a boat fuel station in OpenStreetMap; check before relying on it.</div>' : ''}</div>
       <div style="text-align:right"><div class="num" style="font-size:20px">${lp ? f(lp.price, 3) + ' €/L' : '–'}</div><div class="sub">${lp ? (lp.src === 'refuel' ? 'you paid ' : 'seen ') + ageTxt(lp.t) : 'no price yet'}</div></div></div>`;
     const btns = `<div class="btnrow" style="padding:0"><button class="btn small grow" data-act="price-seen">Log price seen</button>${st.user ? '<button class="btn small" data-act="del-station">Delete</button>' : ''}</div>`;
     const box = $('#range-route');
@@ -879,13 +881,16 @@
         <div class="field"><label for="draft">Draft limit<small>avoid water shallower than this</small></label><div class="inbox"><input id="draft" inputmode="decimal" value="${s.draftM}" data-act="setnum" data-k="draftM"><span>m</span></div></div>
         <button class="btn small" data-act="sea-download">Download / update sea data</button>
         <div class="sub" id="sea-out">${Sea.meta ? 'Loaded: ' + seaInfo(Sea.meta) : 'Not downloaded yet.'}</div>
+        <div class="cardhead" style="padding-top:8px"><div class="h">Fuel stations</div><div class="sub">${(Sea.stations || []).length} on the map${(S().userStations || []).length ? ' + ' + S().userStations.length + ' your own' : ''}</div></div>
+        <div class="sub">Fetched from OpenStreetMap on this phone. Green = boat fuel station; white = ordinary fuel station within about 200 m of water (download the sea data first for this check).</div>
+        <button class="btn small" data-act="fuel-update">Update fuel stations from OpenStreetMap</button><div class="sub" id="fuel-out"></div>
       </div>
       <div class="card"><div class="cardhead"><div class="h">Backup</div></div>
         <div class="sub">All data lives on this phone only. Export a backup now and then (also before reinstalling).</div>
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 4.6 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 4.6.1 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -1142,6 +1147,16 @@
     },
     'save-station': () => { const st = Core.addUserStation(lastTap.lat, lastTap.lng, $('#ns-n').value.trim()); closeSheet(); toast('Fuel station added'); drawStations(); stationCard(st); },
     'del-station': () => confirmSheet('Delete this station?', 'Its price history is kept in backups but the marker is removed.', 'Delete', () => { Core.deleteUserStation(openStation.id); openStation = null; clearRoute(); drawStations(); }),
+    'fuel-update': async () => {
+      const out = $('#fuel-out'), btns = document.querySelectorAll('[data-act=fuel-update]'); btns.forEach((b) => { b.disabled = true; });
+      try {
+        const r = await Sea.fetchStations((t) => { if (out) out.textContent = t; });
+        const msg = `${r.total} fuel stations: ${r.marine} boat fuel stations, ${r.near} by the water`;
+        if (out) out.textContent = msg; toast(msg, 4000);
+        if (current === 'range') renderRange(); else if (current === 'more') R.more();
+      } catch (e) { if (out) out.textContent = 'Could not reach OpenStreetMap (' + e.message + '). Try again on Wi-Fi.'; }
+      btns.forEach((b) => { b.disabled = false; });
+    },
     'range-start-here': () => { if (lastTap) setRangeStart(lastTap.lat, lastTap.lng); },
     'range-start-gps': () => { S().settings.rangeStart = null; Core.save(); toast('Start from the boat GPS position'); renderRange(); },
     'range-area': (el) => { S().settings.rangeArea = el.dataset.a; Core.save(); renderRange(); },
@@ -1199,7 +1214,7 @@
   const windDone = () => { if (current === 'trip' || current === 'curve' || current === 'trips') R[current](); };
   window.addEventListener('online', () => Wind.processPending(windDone));
   Core.init().then(() => {
-    Sea.init();
+    Sea.init().then(() => { if (current === 'range' && maps.range) drawStations(); });
     setTimeout(() => Wind.processPending(windDone), 3000);
     go('helm');
     Core.resumeIfActive();

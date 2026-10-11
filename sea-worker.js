@@ -298,6 +298,18 @@ onmessage = (e) => {
     let res;
     if (m.cmd === 'load') res = load(m);
     else if (m.cmd === 'inside') res = { inside: !!G && cellOf(m.lat, m.lon) >= 0 };
+    else if (m.cmd === 'nearWater') {   // any water cell within rad cells (~100 m each) of the point
+      res = m.points.map((p) => {
+        if (!G) return false;
+        const t = cellOf(p.lat, p.lon); if (t < 0) return false;
+        const r0 = (t / G.W) | 0, c0 = t - r0 * G.W;
+        for (let dr = -m.rad; dr <= m.rad; dr++) for (let dc = -m.rad; dc <= m.rad; dc++) {
+          const r = r0 + dr, c = c0 + dc; if (r < 0 || c < 0 || r >= G.H || c >= G.W) continue;
+          if (G.g[r * G.W + c] !== 0) return true;
+        }
+        return false;
+      });
+    }
     else if (m.cmd === 'water') {
       const t0 = Date.now();
       W = waterSearch(m.lat, m.lon, m.maxM, m.draftDm);

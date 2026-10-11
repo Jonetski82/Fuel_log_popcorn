@@ -182,6 +182,16 @@ const I18N = (() => {
     'Green pins = fuel stations (tap for price, distance and fuel needed).': 'Vihreät merkit = tankkausasemat (napauta: hinta, matka ja tarvittava polttoaine).',
     'Range & fuel stations': 'Kantama ja tankkausasemat',
     'today': 'tänään', '{n} d ago': '{n} pv sitten', '{n} wk ago': '{n} vk sitten', '{n} mo ago': '{n} kk sitten',
+    'No fuel stations loaded yet.': 'Tankkausasemia ei ole vielä ladattu.', 'Load fuel stations from OpenStreetMap': 'Lataa tankkausasemat OpenStreetMapista',
+    'Fuel stations': 'Tankkausasemat', '{n} on the map': '{n} kartalla', '{n} on the map + {n} your own': '{n} kartalla + {n} omaa',
+    'Fetched from OpenStreetMap on this phone.': 'Haetaan OpenStreetMapista tällä puhelimella.',
+    'Green = boat fuel station; white = ordinary fuel station within about 200 m of water (download the sea data first for this check).': 'Vihreä = veneiden tankkausasema; valkoinen = tavallinen tankkausasema noin 200 m:n päässä vedestä (lataa ensin merialuedata tätä tarkistusta varten).',
+    'Update fuel stations from OpenStreetMap': 'Päivitä tankkausasemat OpenStreetMapista', 'Asking OpenStreetMap…': 'Kysytään OpenStreetMapilta…', 'Checking which stations are by the water…': 'Tarkistetaan, mitkä asemat ovat veden äärellä…',
+    '{n} fuel stations: {n} boat fuel stations, {n} by the water': '{n} tankkausasemaa: {n} veneasemaa, {n} veden äärellä',
+    'Could not reach OpenStreetMap ({x}). Try again on Wi-Fi.': 'OpenStreetMapiin ei saatu yhteyttä ({x}). Yritä uudelleen Wi-Fi-yhteydellä.',
+    'Fuel station by the water — not marked as a boat fuel station in OpenStreetMap; check before relying on it.': 'Tankkausasema veden äärellä — OpenStreetMapissa sitä ei ole merkitty veneiden asemaksi; varmista ennen kuin luotat siihen.',
+    'Green pins = fuel stations (tap for price, distance and fuel needed).': 'Vihreät merkit = tankkausasemat (napauta: hinta, matka ja tarvittava polttoaine).',
+    'Green pins = boat fuel stations, white = fuel station by the water (tap for price, distance and fuel needed).': 'Vihreät merkit = veneiden tankkausasemat, valkoiset = tankkausasema veden äärellä (napauta: hinta, matka ja tarvittava polttoaine).',
     'When': 'Ajankohta', 'change if you log it afterwards': 'muuta, jos kirjaat jälkikäteen', 'Load: Light': 'Kuorma: kevyt', 'Load: Normal': 'Kuorma: normaali', 'Load: Full': 'Kuorma: täysi',
     'Trips without GPS (logged afterwards) can be added on the Trips tab.': 'Ilman GPS:ää ajetut matkat voi lisätä jälkikäteen Matkat-välilehdellä.',
     'No dip recorded yet. A dip before departure lets the app follow the fuel levels and measure consumption.': 'Mittauksia ei vielä ole. Mittaus ennen lähtöä antaa sovelluksen seurata polttoainemääriä ja mitata kulutusta.',
@@ -286,6 +296,7 @@ const I18N = (() => {
     [/^(Planning failed|Route failed|Import failed|Update check failed): (.*)$/, (m, w, x) => ({ 'Planning failed': 'Suunnittelu epäonnistui', 'Route failed': 'Reitin laskenta epäonnistui', 'Import failed': 'Tuonti epäonnistui', 'Update check failed': 'Päivityksen tarkistus epäonnistui' }[w]) + ': ' + x],
     [/^Wind: not available \((.*)\)$/, (m, x) => `Tuuli: ei saatavilla (${FI[x] || x})`],
     [/^Loaded: built (.+?), depth: (.+?), (\d+) fairway segments, (\d+) fuel stations, (.+) MB$/, (m, b, d, f, s, mb) => `Ladattu: rakennettu ${b}, syvyys: ${d}, ${f} väyläosuutta, ${s} tankkausasemaa, ${mb} MB`],
+    [/^Could not reach OpenStreetMap \((.*)\)\. Try again on Wi-Fi\.$/, (m, x) => `OpenStreetMapiin ei saatu yhteyttä (${x}). Yritä uudelleen Wi-Fi-yhteydellä.`],
     [/^seen (.+)$/, (m, x) => 'nähty ' + tr(x)], [/^you paid (.+)$/, (m, x) => 'maksoit ' + tr(x)]
   ];
 

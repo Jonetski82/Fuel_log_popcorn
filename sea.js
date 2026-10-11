@@ -53,7 +53,10 @@ const Sea = (() => {
     onStep && onStep('Downloading fairways…');
     const f = await fetch(u('fairways.json.gz')); const fb = f.ok ? await f.arrayBuffer() : null;
     onStep && onStep('Downloading fuel stations…');
-    try { const fr = await fetch(u('fuel.json')); if (fr.ok) await Core.kvSet('sea-fuel', await fr.json()); } catch (e) { /* optional */ }
+    try {   // an empty list from the workflow must not wipe stations fetched on the phone
+      const fr = await fetch(u('fuel.json'));
+      if (fr.ok) { const j = await fr.json(); if (j && j.stations && j.stations.length) await Core.kvSet('sea-fuel', j); }
+    } catch (e) { /* optional */ }
     await Core.kvSet('sea-grid', gb); if (fb) await Core.kvSet('sea-fw', fb);
     m.downloaded = Date.now(); m.bytes = gb.byteLength + (fb ? fb.byteLength : 0);
     await Core.kvSet('sea-meta', m);
@@ -87,5 +90,46 @@ const Sea = (() => {
   const leg = (a, b, mode, draftM, maxM) => call('leg', { a, b, mode, draftDm: Math.round(draftM * 10), maxM });
   const inside = (lat, lon) => call('inside', { lat, lon });
 
-  return { init, download, compute, route, matrix, leg, inside, get meta() { return meta; }, get stations() { return stations; } };
+  // Fuel stations straight from OpenStreetMap (the phone asks Overpass; no GitHub workflow needed).
+  // Marine-tagged stations are kept; ordinary fuel stations only when they lie within ~200 m of water (marked "near").
+  const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+  const DEFAULT_BBOX = [19.4, 59.2, 28.0, 61.0];
+  async function fetchStations(onStep) {
+    await init();
+    const bb = (meta && meta.bbox) || DEFAULT_BBOX, b = `(${bb[1]},${bb[0]},${bb[3]},${bb[2]})`;
+    const q = `[out:json][timeout:120];(nwr["waterway"="fuel"]${b};nwr["seamark:small_craft_facility:category"~"fuel"]${b};nwr["amenity"="fuel"]${b};);out center tags;`;
+    let els = null, last = null;
+    for (const u of OVERPASS) {
+      try {
+        onStep && onStep('Asking OpenStreetMap…');
+        const r = await fetch(u, { method: 'POST', body: new URLSearchParams({ data: q }) });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        els = (await r.json()).elements || []; break;
+      } catch (e) { last = e; }
+    }
+    if (!els) throw last || new Error('no answer');
+    const marine = (t) => t.waterway === 'fuel' || /fuel/.test(t['seamark:small_craft_facility:category'] || '') || t.boat === 'yes' || 'fuel:marine_diesel' in t;
+    const seen = new Set(), sure = [], cand = [];
+    els.forEach((e) => {
+      const lat = e.lat ?? (e.center && e.center.lat), lon = e.lon ?? (e.center && e.center.lon);
+      if (lat == null || lon == null) return;
+      const k = lat.toFixed(4) + ',' + lon.toFixed(4); if (seen.has(k)) return; seen.add(k);
+      const t = e.tags || {};
+      const st = { id: 'osm:' + e.type[0] + e.id, lat: +lat.toFixed(6), lon: +lon.toFixed(6), name: t.name || t['seamark:name'] || t.brand || t.operator || 'Fuel station',
+        operator: t.operator || t.brand || '', fuels: Object.keys(t).filter((x) => x.startsWith('fuel:') && t[x] !== 'no').map((x) => x.slice(5)).sort(),
+        hours: t.opening_hours || '', phone: t.phone || t['contact:phone'] || '', website: t.website || t['contact:website'] || '' };
+      (marine(t) ? sure : cand).push(st);
+    });
+    let near = [];
+    if (cand.length && meta) {
+      onStep && onStep('Checking which stations are by the water…');
+      const ok = await call('nearWater', { points: cand.map((c) => ({ lat: c.lat, lon: c.lon })), rad: 2 });
+      near = cand.filter((_, i) => ok[i]).map((c) => ({ ...c, near: true }));
+    }
+    stations = sure.concat(near);
+    await Core.kvSet('sea-fuel', { built: new Date().toISOString(), source: 'OpenStreetMap contributors (ODbL)', stations });
+    return { total: stations.length, marine: sure.length, near: near.length, checked: !!meta };
+  }
+
+  return { init, download, compute, route, matrix, leg, inside, fetchStations, get meta() { return meta; }, get stations() { return stations; } };
 })();

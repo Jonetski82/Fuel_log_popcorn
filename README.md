@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 4.6)
+# Popcorn Fuel Log (PWA, version 4.6.1)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -104,3 +104,9 @@ Reserviasetus on poistettu. Käytettävä polttoaine = kaikki imuputken yläpuol
 
 - Reittisuunnittelu tankkauksineen on poistettu (planner.js ei ole enää käytössä ja sen voi poistaa repositorysta).
 - Kantamakartalla tankkausasemat näkyvät vihreinä merkkeinä; lähellä merkin yläpuolella näkyy viimeisin tunnettu hinta, kaukaa pieni pyöreä merkki.
+
+## Versio 4.6.1 – tankkausasemat suoraan OpenStreetMapista
+
+- Lisää → Tankkausasemat → Päivitä tankkausasemat OpenStreetMapista: puhelin hakee asemat itse (ei vaadi GitHub-työnkulkua).
+- Vihreä merkki = veneiden tankkausasema (OSM-merkintä), valkoinen = tavallinen asema noin 200 m:n päässä vedestä.
+- Jos asemia ei ole ladattu, Kantama-näkymä näyttää latauspainikkeen.
