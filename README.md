@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 4.3)
+# Popcorn Fuel Log (PWA, version 4.5)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -81,3 +81,21 @@ Tuulidata © Ilmatieteen laitos (CC BY 4.0).
 ## Versio 4.3 – reittisuunnittelu tankkauksineen
 
 Range-välilehti → **Plan trip with refuelling**. Lähtö = veneen GPS tai pitkällä painalluksella valittu piste. Määränpää ja välipisteet valitaan napauttamalla karttaa tai tankkausasemaa. Sovellus laskee meri- tai väyläetäisyydet lähimpiin (enintään 12) asemiin reitin varrella ja etsii polttoaineen riittävät yhdistelmät (enintään 4 tankkausta). Tuloksena: Halvin / Vähiten pysähdyksiä / Lyhin. Tankkausmäärä = seuraavan osuuden tarve + vara (oletus 20 L) per tankki, ei koskaan alle reservin. Tuntematon hinta = viimeksi maksettu hinta (merkitään "price estimate"). Väylätilassa reitin kumpikin pää saa olla enintään 5 mpk vesitse väylästä.
+
+## Versio 4.4 – suomenkielinen käyttöliittymä
+
+Lisää → Kieli / Language: Suomi tai English (oletus suomi). Käännökset ovat tiedostossa `i18n.js`; NM, kn ja Port/Stbd pidetään ennallaan. Epäonnistumisilmoitus kertoo syyn.
+
+## Versio 4.4.1 – reservi poistettu
+
+Reserviasetus on poistettu. Käytettävä polttoaine = kaikki imuputken yläpuolella oleva; kantama ja reittisuunnittelu laskevat imuputken tasoon asti.
+
+## Versio 4.5 – Loki, käsin lisättävät matkat ja käytettävyys
+
+- Välilehdet: Ruori, Matkat, Loki, Käyrät, Tankit, Lisää. Kantama ja suunnittelu avataan Ruorin Tankit-kortista.
+- Loki: kausivalinta, yhteenveto koneittain ja veneelle (NM, tunnit, litrat, €), tankkausloki ja mittausloki.
+- Mittauksen tyyppi: ennen matkaa / matkan jälkeen / erillinen. Matkan alussa kysytään mittausta, jos tankkeja ei ole mitattu edellisen matkan jälkeen.
+- Tankkauksen lähde: asema (valitaan tai kirjoitetaan) tai kanisteri, litrahinta tallennetaan.
+- Matkan voi lisätä käsin (päivä, matka, ajoaika, koneet, kuorma); muokattavissa.
+- Tankkauksen ja mittauksen ajankohdan voi muuttaa jälkikirjausta varten. Mittaus molemmille tankeille samassa ikkunassa.
+- Suomeksi desimaalipilkku.

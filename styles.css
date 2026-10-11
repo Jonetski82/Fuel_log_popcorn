@@ -133,7 +133,7 @@ a { color: var(--blue); }
 .warn { margin: 12px 16px 0 16px; background: #FBE9DF; color: #6E2A08; border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.35; }
 .empty { margin: 24px 16px; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.5; }
 
-nav#nav { position: fixed; left: 0; right: 0; bottom: 0; height: var(--nav-h); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--line); background: var(--surface); z-index: 1000; padding-bottom: env(safe-area-inset-bottom); }
+nav#nav { position: fixed; left: 0; right: 0; bottom: 0; height: var(--nav-h); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-top: 1px solid var(--line); background: var(--surface); z-index: 1000; padding-bottom: env(safe-area-inset-bottom); }
 nav#nav button { border: 0; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 12px; color: var(--muted); cursor: pointer; }
 nav#nav button svg { width: 22px; height: 22px; }
 nav#nav button.on { color: var(--accent); font-weight: 600; }
@@ -150,3 +150,12 @@ nav#nav button.on { color: var(--accent); font-weight: 600; }
 svg.chart text { font-family: 'Barlow', sans-serif; }
 .boat-icon { background: none; border: 0; }
 .leaflet-control-attribution { font-size: 10px; }
+
+.tile .num{white-space:nowrap}
+
+.logrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #ECE8DC}
+.logrow .main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.logrow .main b{font-weight:600;font-size:14px;color:#13212F;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logrow .main span{font-size:13px;color:#4F5B66}
+.logrow .right{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:13px;color:#4F5B66;white-space:nowrap}
+.logrow .right .num{font-size:16px;color:#13212F}

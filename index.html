@@ -17,19 +17,22 @@
 <div id="app">
   <section class="view" id="v-helm"></section>
   <section class="view" id="v-tripend"></section>
+  <section class="view" id="v-predip"></section>
   <section class="view" id="v-trips"></section>
   <section class="view" id="v-trip"></section>
+  <section class="view" id="v-tripform"></section>
   <section class="view" id="v-curve"></section>
   <section class="view" id="v-tanks"></section>
   <section class="view" id="v-refuel"></section>
   <section class="view" id="v-range"></section>
+  <section class="view" id="v-log"></section>
   <section class="view" id="v-more"></section>
 </div>
 
 <nav id="nav" aria-label="Main">
   <button data-go="helm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m12 7 3 8-3-2-3 2 3-8Z"/></svg>Helm</button>
-  <button data-go="range"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"><circle cx="12" cy="12" r="9"/></svg>Range</button>
-  <button data-go="trips"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg>Trips</button>
+    <button data-go="trips"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg>Trips</button>
+  <button data-go="log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 11h7M9 15h7M9 7h4"/></svg>Log</button>
   <button data-go="curve"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M6 16c3-1 4-6 7-7s4 3 7 2"/></svg>Curve</button>
   <button data-go="tanks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M5 13h14"/></svg>Tanks</button>
   <button data-go="more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>More</button>
@@ -39,6 +42,7 @@
 <div id="sheet"><div class="panel" id="sheet-panel"></div></div>
 
 <script src="vendor/leaflet.js"></script>
+<script src="i18n.js"></script>
 <script src="core.js"></script>
 <script src="sea.js"></script>
 <script src="wind.js"></script>

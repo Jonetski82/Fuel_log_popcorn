@@ -4,19 +4,26 @@
 (() => {
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const f = (x, d = 1) => (isFinite(x) ? Number(x).toFixed(d) : '–');
+  const f = (x, d = 1) => (isFinite(x) ? dec(Number(x).toFixed(d)) : '–');
+  const dec = (s) => (typeof I18N !== 'undefined' && I18N.lang === 'fi' ? s.replace('.', ',') : s);   // Finnish decimal comma
   const fi = (x) => (isFinite(x) ? Math.round(x).toString() : '–');
-  const pm = (x, d = 0) => (isFinite(x) ? (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(d) : '–');
+  const pm = (x, d = 0) => (isFinite(x) ? (x >= 0 ? '+' : '−') + dec(Math.abs(x).toFixed(d)) : '–');
   const dur = (h) => { if (!isFinite(h)) return '–'; const m = Math.round(h * 60); return m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min'; };
   const clock = (ms) => { const s = Math.floor(ms / 1000); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return h + ':' + String(m).padStart(2, '0') + ':' + String(x).padStart(2, '0'); };
-  const dstr = (t) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  const dtstr = (t) => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  const tstr = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const FIL = () => I18N.lang === 'fi';
+  const dstr = (t) => new Date(t).toLocaleDateString(I18N.locale, FIL() ? { day: 'numeric', month: 'numeric' } : { day: 'numeric', month: 'short' });
+  const dtstr = (t) => new Date(t).toLocaleString(I18N.locale, { day: 'numeric', month: FIL() ? 'numeric' : 'short', hour: '2-digit', minute: '2-digit' });
+  const tstr = (t) => new Date(t).toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' });
   const S = () => Core.state;
   // ruler unit: values are stored in mm, shown and typed in the chosen unit (default cm)
   const RUL = () => (S() && S().settings.rulerUnit) || 'cm';
   const rv = (v) => { const x = Core.num(v); return isFinite(x) ? (RUL() === 'cm' ? x * 10 : x) : NaN; };
-  const rn = (mm) => (isFinite(mm) ? (RUL() === 'cm' ? (Math.round(mm / 5) * 5 / 10).toFixed(1).replace(/\.0$/, '') : String(Math.round(mm))) : '');
+  const rn = (mm) => (isFinite(mm) ? (RUL() === 'cm' ? dec((Math.round(mm / 5) * 5 / 10).toFixed(1).replace(/\.0$/, '')) : String(Math.round(mm))) : '');
+  // date-time fields (entries can be logged afterwards)
+  const p2 = (n) => String(n).padStart(2, '0');
+  const localInput = (t) => { const d = new Date(t); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + 'T' + p2(d.getHours()) + ':' + p2(d.getMinutes()); };
+  const readWhen = (id) => { const el = document.getElementById(id); const t = el && el.value ? new Date(el.value).getTime() : Date.now(); return isFinite(t) ? t : Date.now(); };
+  const whenField = (id, t) => `<div class="field"><label for="${id}">When<small>change if you log it afterwards</small></label><div class="inbox wide" style="width:58%"><input type="datetime-local" id="${id}" value="${localInput(t || Date.now())}"></div></div>`;
   const rs = (mm) => (isFinite(mm) ? rn(mm) + ' ' + RUL() : '–');
   const MODE_LABEL = { both: 'Both engines', port: 'Port only', stbd: 'Stbd only' };
   const LOAD_LABEL = { light: 'Light', normal: 'Normal', full: 'Full' };
@@ -77,11 +84,13 @@
 
   // ---------- navigation ----------
   let current = 'helm', params = {};
-  const NAV_OF = { helm: 'helm', tripend: 'helm', range: 'range', trips: 'trips', trip: 'trips', curve: 'curve', tanks: 'tanks', refuel: 'tanks', more: 'more' };
+  const NAV_OF = { helm: 'helm', tripend: 'helm', predip: 'helm', range: 'helm', log: 'log', trips: 'trips', trip: 'trips', tripform: 'trips', curve: 'curve', tanks: 'tanks', refuel: 'tanks', more: 'more' };
+  let backOf = {};   // view -> view it was opened from
   function go(v, p = {}) {
+    if ((v === 'refuel' || v === 'tripform') && current !== v) backOf[v] = current;
     current = v; params = p;
     document.querySelectorAll('.view').forEach((el) => el.classList.toggle('active', el.id === 'v-' + v));
-    document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.go === NAV_OF[v]));
+    document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.go === (v === 'refuel' && backOf.refuel === 'log' ? 'log' : NAV_OF[v])));
     (R[v] || (() => {}))();
     $('#v-' + v).scrollTop = 0;
     Object.values(maps).forEach((m) => setTimeout(() => m.invalidateSize(), 50));
@@ -95,7 +104,6 @@
       <div class="bar" style="position:relative;overflow:visible">
         <div style="width:${pct(u.L)}%;background:${t.color};border-radius:6px"></div>
         <div title="unusable" style="position:absolute;left:0;top:0;height:12px;border-radius:6px 0 0 6px;width:${pct(u.dead)}%;background:repeating-linear-gradient(135deg,rgba(19,33,47,.6) 0 3px,rgba(255,255,255,.3) 3px 6px)"></div>
-        <div title="reserve" style="position:absolute;top:-3px;height:18px;width:2px;background:#13212F;left:${pct(u.dead + u.reserve)}%"></div>
       </div><div class="amt num">${fi(u.L)} L</div></div>`;
   }
   function tankBars() {
@@ -106,8 +114,9 @@
     const last = Math.max(...s.tanks.map((t) => Core.levelNow(t.id).since.t));
     return `<div class="card"><div class="cardhead"><div class="h">Tanks, estimated</div><div class="sub">Last reading ${dstr(last)}</div></div>
       ${s.tanks.map(tankBar).join('')}
-      <div class="sub">Hatched = below suction pipe · line = reserve</div>
-      <div class="sub" id="helm-range"></div></div>`;
+      <div class="sub">Hatched = below suction pipe</div>
+      <div class="sub" id="helm-range"></div>
+      <button class="btn small dark" data-act="go" data-v="range">${IC.ring} Range &amp; planning</button></div>`;
   }
   function bandsHtml(bb) {
     const rows = []; let max = 0;
@@ -143,7 +152,6 @@
       v.innerHTML = `
       <div class="top"><div><div class="title">Popcorn</div><div class="sub" id="helm-sub">Ready</div></div><div class="pill" id="helm-pill"><span class="dot"></span>GPS idle</div></div>
       <div class="mapbox" style="height:32vh;min-height:200px"><div id="map-helm" class="map"></div>
-        <button class="mapchip" data-act="go" data-v="range">${IC.ring}Range</button>
         <div class="mapbtns"><button class="mapbtn" aria-label="Centre on boat" data-act="center">${IC.center}</button><button class="mapbtn" aria-label="Map layers" data-act="go" data-v="more">${IC.layers}</button></div>
       </div>
       <div id="helm-dyn"></div>`;
@@ -159,23 +167,26 @@
   function renderHelmDyn() {
     const s = S(), A = s.active, lv = Core.live;
     const kn = lv.sogKn || 0, mode = A ? A.mode : 'both';
-    $('#helm-dyn').innerHTML = `
-      ${lv.error ? `<div class="warn">GPS: ${esc(lv.error)}. Allow location for this app in Android settings.</div>` : ''}
-      ${A && lv.gap ? '<div class="warn">GPS paused while the screen was off. The gap was filled with a straight line.</div>' : ''}
-      ${A ? `<div class="btnrow" style="padding-top:10px"><button class="btn small grow" data-act="mode-sheet"><b id="h-mode">${MODE_LABEL[A.mode]}</b></button><button class="btn small grow dark" data-act="rpm-sheet">RPM&nbsp;<b id="h-rpm">${A.rpm || 'set'}</b></button><button class="btn small" data-act="load-sheet">${LOAD_LABEL[A.load || 'normal']}</button></div>` : ''}
-      <div class="grid2">
+    const warn = `${lv.error ? `<div class="warn">GPS: ${esc(lv.error)}. Allow location for this app in Android settings.</div>` : ''}
+      ${A && lv.gap ? '<div class="warn">GPS paused while the screen was off. The gap was filled with a straight line.</div>' : ''}`;
+    const tiles = `<div class="grid2">
         <div class="tile"><div class="lbl">Speed (SOG)</div><div class="val"><span class="num big" id="h-sog">${f(kn)}</span><span class="unit">kn</span></div><div class="hint" id="h-sogavg">avg ${f(lv.sogAvg)} kn</div></div>
         <div class="tile dark"><div class="lbl">Fuel per mile</div><div class="val"><span class="num big" id="h-lpnm">${kn >= 1 ? f(Core.lpnm(mode, kn)) : '–'}</span><span class="unit">L/NM</span></div><div class="hint" id="h-lpnm-h"></div></div>
         <div class="tile"><div class="lbl">Distance</div><div class="val"><span class="num mid" id="h-dist">${A ? f(A.distNm) : '–'}</span><span class="unit">NM</span></div></div>
         <div class="tile"><div class="lbl">Used, est.</div><div class="val"><span class="num mid" id="h-used">${A ? fi(Core.tripFuelTotal(A)) : '–'}</span><span class="unit">L</span></div><div class="hint" id="h-used-split"></div></div>
-      </div>
+      </div>`;
+    $('#helm-dyn').innerHTML = A ? `${warn}
+      <div class="btnrow" style="padding-top:10px"><button class="btn small grow" data-act="mode-sheet"><b id="h-mode">${MODE_LABEL[A.mode]}</b></button><button class="btn small grow dark" data-act="rpm-sheet">RPM&nbsp;<b id="h-rpm">${A.rpm || 'set'}</b></button><button class="btn small" data-act="load-sheet">${'Load: ' + LOAD_LABEL[A.load || 'normal']}</button></div>
+      ${tiles}
       <div class="card" style="gap:4px">${ecoHtml(true)}</div>
       ${tankBars()}
-      <div class="btnrow">
-        ${A ? `<button class="btn" data-act="pause">${A.paused ? 'Resume' : 'Pause'}</button><button class="btn primary" data-act="end-trip">End trip &amp; dip tanks</button>`
-            : '<button class="btn primary" data-act="start-trip">Start trip</button>'}
-      </div>
-      <div class="note">Keep the app open on screen while under way: Android pauses GPS for web apps when the screen is off. Set RPM whenever you change throttle — steady stretches teach the app your speed–RPM table and hull condition.</div>`;
+      <div class="btnrow"><button class="btn" data-act="pause">${A.paused ? 'Resume' : 'Pause'}</button><button class="btn primary" data-act="end-trip">End trip &amp; dip tanks</button></div>
+      <div class="note">Keep the app open on screen while under way: Android pauses GPS for web apps when the screen is off. Set RPM whenever you change throttle — steady stretches teach the app your speed–RPM table and hull condition.</div>`
+    : `${warn}
+      <div class="btnrow" style="padding-top:10px"><button class="btn primary" data-act="start-trip">Start trip</button></div>
+      ${tankBars()}
+      <div class="card" style="gap:4px">${ecoHtml(true)}</div>
+      <div class="sub" style="padding:4px 16px">Trips without GPS (logged afterwards) can be added on the Trips tab.</div>`;
     updateHelmLive();
   }
   function updateHelmLive() {
@@ -216,6 +227,7 @@
     if (!tr) return go('helm');
     const bb = Core.tripBands(tr);
     const moving = tr.hours - bb.both[0] - bb.port[0] - bb.stbd[0];
+    $('#v-predip').innerHTML = '';
     $('#v-tripend').innerHTML = `
       <div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Trip complete</div><div class="sub">${dstr(tr.start)} · ${tstr(tr.start)}–${tstr(tr.end)}</div></div></div>
       <div class="grid3" style="padding-top:0">
@@ -233,6 +245,21 @@
       </div>
       <div class="btnrow"><button class="btn" data-act="go" data-v="trips">Skip dip</button><button class="btn primary" data-act="save-dips" data-id="${tr.id}">Save</button></div>
       <div class="note">No dip now? The trip still counts: the next dip measures all trips since the previous one together.</div>`;
+  };
+  // DIP BEFORE A TRIP
+  R.predip = () => {
+    $('#v-tripend').innerHTML = '';
+    $('#v-predip').innerHTML = `
+      <div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Dip before departure</div><div class="sub">${dtstr(Date.now())}</div></div></div>
+      <div class="card"><div class="cardhead"><div class="h">Dip tanks with ruler</div></div>
+        ${S().tanks.map((t) => `<div class="field"><label for="dip-${t.id}" style="color:${t.color};font-weight:600;flex:0 0 48px">${esc(t.name)}</label>
+          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}" placeholder="${RUL()}"><span>${RUL()}</span></div>
+          <div style="flex:1;text-align:right"><div class="num" style="font-size:20px" id="dipL-${t.id}">– L</div><div class="sub" id="dipU-${t.id}"></div></div></div>`).join('')}
+        ${roughBox('dip-rough')}
+        <div id="dip-sum"></div>
+      </div>
+      <div class="btnrow"><button class="btn" data-act="predip-skip">Skip</button><button class="btn primary" data-act="save-predip">Save &amp; start trip</button></div>
+      <div class="note">Marked "before trip" in the log. Then choose the load and the trip starts.</div>`;
   };
   function dipPreview() {
     let total = 0, n = 0;
@@ -261,7 +288,7 @@
   R.trips = async () => {
     const v = $('#v-trips'), s = S();
     if (!tripsBuilt) {
-      v.innerHTML = `<div class="top"><div><div class="title">Trips</div><div class="sub" id="trips-sub"></div></div></div>
+      v.innerHTML = `<div class="top"><div><div class="title">Trips</div><div class="sub" id="trips-sub"></div></div><button class="btn small" data-act="manual-new">Add trip</button></div>
         <div class="mapbox" style="height:38vh;min-height:220px"><div id="map-trips" class="map"></div><div class="maplegend" id="trips-legend" style="top:10px;bottom:auto"></div></div>
         <div id="trips-dyn"></div>`;
       getMap('trips'); tripsBuilt = true;
@@ -276,8 +303,8 @@
       const m = Core.tripMeasured(t);
       return `<button class="item" data-act="open-trip" data-id="${t.id}"><span class="stripe" style="background:${rampColor(vals[i], br)}"></span>
         <span class="main"><b>${esc(t.name)}</b><span>${dstr(t.start)} · ${f(t.distNm)} NM · ${dur(t.hours)}</span></span>
-        <span class="right"><span class="num">${f(vals[i])} L/NM</span><span>${m ? (m.shared ? 'shared dip' : 'dipped') : 'estimate'}</span></span></button>`;
-    }).join('')}</div>` : '<div class="empty">No trips yet. Start one from the Helm screen.</div>';
+        <span class="right"><span class="num">${f(vals[i])} L/NM</span><span>${t.manual ? 'by hand' : ''}${t.manual && m ? ' · ' : ''}${m ? (m.shared ? 'shared dip' : 'dipped') : t.manual ? '' : 'estimate'}</span></span></button>`;
+    }).join('')}</div>` : '<div class="empty">No trips yet. Start one from the Helm screen, or add a trip by hand.</div>';
     const m = maps.trips; m._over.clearLayers();
     const all = [];
     for (let i = 0; i < trips.length; i++) {
@@ -294,13 +321,15 @@
     const v = $('#v-trip');
     if (!tripBuilt) {
       v.innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="trips">${IC.back}</button><div><div class="title" id="trip-title"></div><div class="sub" id="trip-sub"></div></div></div>
-        <div class="mapbox" style="height:30vh;min-height:200px"><div id="map-trip" class="map"></div></div><div id="trip-dyn"></div>`;
+        <div class="mapbox" id="trip-mapbox" style="height:30vh;min-height:200px"><div id="map-trip" class="map"></div></div><div id="trip-dyn"></div>`;
       getMap('trip'); tripBuilt = true;
     }
     const est = Core.tripFuelTotal(tr), meas = Core.tripMeasured(tr), bb = Core.tripBands(tr);
+    $('#trip-mapbox').style.display = tr.manual ? 'none' : '';
     $('#trip-title').textContent = tr.name; $('#trip-sub').textContent = dtstr(tr.start) + '–' + tstr(tr.end);
     const smp = tr.samples || [];
     $('#trip-dyn').innerHTML = `
+      ${tr.manual ? `<div class="card"><div class="cardhead"><div><div class="h">Entered by hand</div><div class="sub">${MODE_LABEL[tr.manual.mode]} · average ${f(tr.distNm / Math.max(0.01, tr.hours))} kn · no GPS track</div></div><button class="btn small" data-act="manual-edit" data-id="${tr.id}">Edit</button></div></div>` : ''}
       <div class="grid3">
         <div class="tile"><div class="lbl">Distance</div><div class="num mid">${f(tr.distNm)}</div><div class="hint">NM</div></div>
         <div class="tile"><div class="lbl">Engine time</div><div class="num mid">${f(tr.hours)}</div><div class="hint">h</div></div>
@@ -316,7 +345,7 @@
       <div class="btnrow"><button class="btn" data-act="del-trip" data-id="${tr.id}">Delete trip</button><button class="btn primary" data-act="rename-trip" data-id="${tr.id}">Save name</button></div>`;
     const m = maps.trip; m._over.clearLayers();
     const pts = (await Core.trackGet(tr.id)) || [];
-    if (pts.length > 1) {
+    if (!tr.manual && pts.length > 1) {
       for (let i = 1; i < pts.length; i++) {
         const kn = pts[i][3];
         L.polyline([[pts[i - 1][0], pts[i - 1][1]], [pts[i][0], pts[i][1]]], { color: kn < 4 ? '#9CC3D5' : kn < 7 ? '#4F8FB0' : kn < 10 ? '#1F5675' : '#B8470F', weight: 4 }).addTo(m._over);
@@ -324,6 +353,40 @@
       m.invalidateSize(); m.fitBounds(L.latLngBounds(pts.map((p) => [p[0], p[1]])), { padding: [20, 20] });
     }
   };
+
+
+  // TRIP ENTERED BY HAND (distance + time, no GPS)
+  let mtMode = 'both', mtLoad = 'normal';
+  R.tripform = () => {
+    const tr = params.id ? S().trips.find((t) => t.id === params.id) : null;
+    mtMode = tr ? tr.manual.mode : 'both'; mtLoad = tr ? tr.load || 'normal' : S().settings.lastLoad || 'normal';
+    const h = tr ? Math.floor(tr.hours) : '', mi = tr ? Math.round((tr.hours - Math.floor(tr.hours)) * 60) : '';
+    const v = (id, def) => def;
+    $('#v-tripform').innerHTML = `
+      <div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="${backOf.tripform || 'trips'}">${IC.back}</button><div><div class="title">${tr ? 'Edit trip' : 'Add trip by hand'}</div><div class="sub">For trips logged without GPS</div></div></div>
+      <div class="card">
+        <div class="field"><label for="mt-start">Start<small>date and time</small></label><div class="inbox wide" style="width:58%"><input type="datetime-local" id="mt-start" data-mt="1" value="${v('mt-start', localInput(tr ? tr.start : Date.now() - 3 * 3600000))}"></div></div>
+        <div class="field"><label for="mt-nm">Distance</label><div class="inbox"><input id="mt-nm" inputmode="decimal" data-mt="1" value="${v('mt-nm', tr ? dec(String(+tr.distNm.toFixed(1))) : '')}"><span>NM</span></div></div>
+        <div class="field"><label for="mt-h">Time under way<small>hours and minutes</small></label><div style="display:flex;gap:6px"><div class="inbox" style="width:76px"><input id="mt-h" inputmode="numeric" data-mt="1" value="${v('mt-h', h)}"><span>h</span></div><div class="inbox" style="width:84px"><input id="mt-min" inputmode="numeric" data-mt="1" value="${v('mt-min', mi)}"><span>min</span></div></div></div>
+        <div class="sub" id="mt-avg"> </div>
+      </div>
+      <div class="card"><div class="cardhead"><div class="h">Engines running</div></div>
+        <div class="seg" style="margin:0">${Core.MODES.map((m) => `<button class="${mtMode === m ? 'on' : ''}" data-act="mt-mode" data-m="${m}">${MODE_LABEL[m]}</button>`).join('')}</div>
+        <div class="cardhead" style="padding-top:8px"><div class="h">Load on board</div></div>
+        <div class="seg" style="margin:0">${['light', 'normal', 'full'].map((l) => `<button class="${mtLoad === l ? 'on' : ''}" data-act="mt-load" data-l="${l}">${LOAD_LABEL[l]}</button>`).join('')}</div>
+      </div>
+      <div class="card"><div class="field"><label for="mt-name">Name<small>optional</small></label><div class="inbox wide" style="width:60%"><input id="mt-name" value="${esc(v('mt-name', tr ? tr.name : ''))}"></div></div></div>
+      <div class="btnrow"><button class="btn" data-act="go" data-v="${backOf.tripform || 'trips'}">Cancel</button><button class="btn primary" data-act="mt-save" data-id="${tr ? tr.id : ''}">${tr ? 'Save changes' : 'Add trip'}</button></div>
+      <div class="note">The time counts as cruising at the average speed. The trip is included in the totals and, when there are dips before and after, in the consumption measurement.</div>`;
+    mtCalc();
+  };
+  function mtCalc() {
+    const nm = Core.num($('#mt-nm').value), h = (Core.num($('#mt-h').value) || 0) + (Core.num($('#mt-min').value) || 0) / 60;
+    const ok = nm >= 0 && h > 0;
+    $('#mt-avg').textContent = ok ? 'Average speed ' + f(nm / h) + ' kn · estimated fuel ' + fi(Core.tripFuelTotal({ bandsBy: (() => { const bb = { both: new Array(Core.NB).fill(0), port: new Array(Core.NB).fill(0), stbd: new Array(Core.NB).fill(0) }; bb[mtMode][Core.bandOf(nm / h)] = h; return bb; })(), load: mtLoad })) + ' L' : ' ';
+    return { nm, h, ok };
+  }
+  const segOn = (el) => el.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
 
   // CHART helper
   function lineChart(series, opt) {
@@ -456,6 +519,53 @@
       <div class="note">Wind, current and load move single stretches by a few percent; the weekly median shows the trend. A rising speed loss at the same RPM means growth on the hull or propellers.</div>`;
   }
 
+
+  // LOG: summary per engine, refuel log, dip log
+  let logPeriod = new Date().getFullYear();
+  const KIND_LABEL = { before: 'before trip', after: 'after trip', check: 'separate' };
+  function logRange() {
+    if (logPeriod === 'all') return [0, Infinity];
+    return [new Date(logPeriod, 0, 1).getTime(), new Date(logPeriod + 1, 0, 1).getTime()];
+  }
+  function refuelGroups(from, to) {
+    const by = new Map();
+    S().events.filter((e) => e.type === 'refuel' && e.t >= from && e.t < to).forEach((e) => {
+      const k = e.group || e.id;
+      if (!by.has(k)) by.set(k, { key: k, t: e.t, src: e.src, price: e.price, port: 0, stbd: 0, ids: [] });
+      const g = by.get(k); g[e.tank] += e.pumped || 0; g.ids.push(e.id);
+    });
+    return [...by.values()].sort((x, y) => y.t - x.t);
+  }
+  const srcText = (src) => (!src ? '–' : src.type === 'canister' ? 'Canister' : (src.name || 'Fuel station'));
+  const dipRows = (from, to) => S().events.filter((e) => e.type === 'dip' && e.t >= from && e.t < to).sort((x, y) => y.t - x.t);
+  R.log = () => {
+    const [from, to] = logRange(), s = S(), sm = Core.summary(from, to);
+    const years = Core.seasons(), thisYear = new Date().getFullYear();
+    const groups = refuelGroups(from, to), dips = dipRows(from, to);
+    const name = (e) => esc(Core.tank(e).name);
+    const row = (label, x, strong) => `<div class="tr" style="grid-template-columns:1.3fr 1fr 1fr 1fr 1fr">${strong ? `<div><b>${label}</b></div>` : `<div>${label}</div>`}<div>${f(x.nm)}</div><div>${f(x.h)}</div><div>${x.Lest > 0.5 ? '~' : ''}${fi(x.L)}</div><div>${fi(x.eur)}</div></div>`;
+    $('#v-log').innerHTML = `
+      <div class="top"><div><div class="title">Log</div><div class="sub">${logPeriod === 'all' ? 'All seasons' : 'Season ' + logPeriod}</div></div></div>
+      <div class="chips">${years.map((y) => `<button class="chip ${logPeriod === y ? 'on' : ''}" data-act="log-period" data-p="${y}">${y === thisYear ? 'This season' : y}</button>`).join('')}<button class="chip ${logPeriod === 'all' ? 'on' : ''}" data-act="log-period" data-p="all">All</button></div>
+      <div class="card" style="gap:0"><div class="cardhead"><div class="h">Summary</div><div class="sub">${sm.trips} trips</div></div>
+        <div class="table">
+          <div class="tr head" style="grid-template-columns:1.3fr 1fr 1fr 1fr 1fr"><div></div><div>NM</div><div>h</div><div>L</div><div>€</div></div>
+          ${row(name('port'), sm.port)}${row(name('stbd'), sm.stbd)}${row('Boat total', sm.boat, true)}
+        </div>
+        <div class="sub" style="padding-top:6px">Engine NM = distance with that engine running · h = engine running time, idling included (boat: trip time) · L = fuel used · € = refuels in the period</div>
+        ${sm.boat.Lest > 0.5 ? `<div class="sub">~ includes ${fi(sm.boat.Lest)} L estimated from the consumption model (trips without dips).</div>` : ''}
+        <div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow" data-act="go" data-v="trips">Trips</button><button class="btn small grow" data-act="manual-new">Add trip by hand</button></div>
+      </div>
+      <div class="card" style="gap:0"><div class="cardhead"><div class="h">Refuel log</div><div class="sub">${groups.length} refuels</div></div>
+        <div class="sub" style="padding-bottom:6px">${name('port')} ${fi(sm.port.bought)} L · ${fi(sm.port.eur)} € · ${name('stbd')} ${fi(sm.stbd.bought)} L · ${fi(sm.stbd.eur)} € · Total ${fi(sm.boat.bought)} L · ${fi(sm.boat.eur)} €</div>
+        ${groups.length ? groups.map((g) => { const L = g.port + g.stbd, pr = isFinite(g.price) && g.price > 0; return `<div class="logrow"><div class="main"><b>${dstr(g.t)} · ${esc(srcText(g.src))}</b><span>P ${fi(g.port)} L · S ${fi(g.stbd)} L${pr ? ' · ' + f(g.price, 3) + ' €/L' : ''}</span></div><div class="right"><span class="num">${fi(L)} L</span><span>${pr ? f(L * g.price, 2) + ' €' : 'no price'}</span></div><button class="iconbtn" aria-label="Delete refuel" data-act="del-refuel" data-k="${g.key}">${IC.x}</button></div>`; }).join('') : '<div class="sub">No refuels in this period.</div>'}
+        <div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow primary" data-act="go" data-v="refuel">Log refuel</button></div>
+      </div>
+      <div class="card" style="gap:0"><div class="cardhead"><div class="h">Dip log</div><div class="sub">${dips.length} dips</div></div>
+        ${dips.length ? dips.map((e) => `<div class="logrow"><div class="main"><b>${dtstr(e.t)} · ${name(e.tank)}</b><span>${KIND_LABEL[Core.dipKind(e)]}${e.rough ? ' · rough' : ''}</span></div><div class="right"><span class="num">${rs(e.mm)}</span><span>${fi(Core.litres(Core.tank(e.tank), e.mm))} L</span></div><button class="iconbtn" aria-label="Delete reading" data-act="del-event" data-id="${e.id}">${IC.x}</button></div>`).join('') : '<div class="sub">No dips in this period.</div>'}
+        <div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow dark" data-act="dip-sheet">Log dip</button></div>
+      </div>`;
+  };
   // TANKS
   let tankSel = 'port';
   const ZERO = { shared: [0, 0, 0, 0, 0], port: [0, 0, 0, 0, 0], stbd: [0, 0, 0, 0, 0] };
@@ -481,10 +591,10 @@
       <div class="seg">${s.tanks.map((k) => `<button class="${k.id === tankSel ? 'on' : ''}" data-act="tank-sel" data-t="${k.id}">${esc(k.name)}</button>`).join('')}</div>
       <div class="grid3">
         <div class="tile"><div class="lbl">Now, est.</div><div class="num mid">${fi(u.L)} <span class="unit">L</span></div><div class="hint">${last ? 'dip ' + rs(last.mm) : 'no dip'}</div></div>
-        <div class="tile dark"><div class="lbl">Usable</div><div class="num mid">${fi(u.usable)} <span class="unit">L</span></div><div class="hint">after pipe &amp; reserve</div></div>
+        <div class="tile dark"><div class="lbl">Usable</div><div class="num mid">${fi(u.usable)} <span class="unit">L</span></div><div class="hint">above the suction pipe</div></div>
         <div class="tile"><div class="lbl">Unusable</div><div class="num mid">${fi(u.dead)} <span class="unit">L</span></div><div class="hint">${byL ? 'set in litres' : 'below ' + rs(t.pipeMm)}</div></div>
       </div>
-      <div class="card" style="gap:6px">${tankBar(t)}<div class="sub">Reserve ${s.settings.reservePct}% of usable capacity = ${fi(u.reserve)} L</div></div>
+      <div class="card" style="gap:6px">${tankBar(t)}</div>
       <div class="btnrow"><button class="btn dark grow" data-act="dip-sheet">Log dip</button><button class="btn primary" data-act="go" data-v="refuel">Log refuel</button></div>
       ${p ? `<div class="card dark"><div class="cardhead"><div><div class="h">Improved tank curve available</div><div class="sub">From ${p.n} readings · error ${f(p.rmsBefore)} → ${f(p.rmsAfter)} L</div></div><button class="btn small" style="background:#fff;color:#13212F" data-act="proposal">Review</button></div></div>` : ''}
       <div class="card" style="padding:12px 6px 10px 2px">
@@ -495,9 +605,7 @@
       </div>
       ${s.curve.history.length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Earlier curves</div></div>${s.curve.history.map((h, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;gap:8px"><span class="sub">${dtstr(h.t)} · ${esc(h.note || '')}</span>${h.base ? '' : `<button class="btn small" data-act="restore-curve" data-i="${i}">Restore</button>`}</div>`).join('')}</div>` : ''}
       ${s.anchors.filter((a) => a.tank === t.id).length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Known points</div></div>${s.anchors.filter((a) => a.tank === t.id).map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px"><span>${rs(a.mm)} = ${f(a.L)} L</span><button class="iconbtn" aria-label="Delete point" data-act="del-anchor" data-id="${a.id}">${IC.x}</button></div>`).join('')}</div>` : ''}
-      <div class="card" style="gap:0"><div class="cardhead"><div class="h">Readings</div></div>
-        ${ev.length ? ev.map((e) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;font-size:14px;gap:6px"><span>${dtstr(e.t)} · ${e.type === 'refuel' ? 'refuel +' + f(e.pumped) + ' L' + (e.brim ? ' (brim)' : '') : 'dip'}${e.rough ? ' · <i>rough</i>' : ''}</span><span style="white-space:nowrap">${rs(e.mm)} = ${fi(Core.litres(t, e.mm))} L <button class="iconbtn" aria-label="Delete reading" data-act="del-event" data-id="${e.id}">${IC.x}</button></span></div>`).join('') : '<div class="sub">No readings yet.</div>'}
-      </div>
+      <div class="btnrow"><button class="btn small grow" data-act="go" data-v="log">Refuel and dip log</button></div>
       ${s.curve.sample ? '<div class="warn">The tank polynomial is a sample. Tap Polynomial to enter yours, and Edit tank for capacity and suction-pipe height.</div>' : ''}`;
   };
   function proposalSheet() {
@@ -513,13 +621,21 @@
   }
 
   // REFUEL
-  let refuelSel = 'port';
+  let refuelSel = null, refuelSrc = 'station', refuelStName = '';
+  // station names for the refuel form: nearest first when GPS is known, own stations and recently used names included
+  function stationNames() {
+    const fx = Core.live.fix, list = allStations().map((st) => ({ n: st.name, d: fx ? Core.haversine([fx.lat, fx.lon], [st.lat, st.lon]) : 0 }));
+    list.sort((x, y) => x.d - y.d || x.n.localeCompare(y.n));
+    const used = S().events.filter((e) => e.src && e.src.name).sort((x, y) => y.t - x.t).map((e) => e.src.name);
+    return [...new Set(used.slice(0, 5).concat(list.map((x) => x.n)))].filter(Boolean);
+  }
   R.refuel = () => {
     const s = S();
+    if (!refuelSel) refuelSel = s.settings.lastRefuelSel || 'both';
     const tanks = refuelSel === 'both' ? s.tanks : [Core.tank(refuelSel)];
     const two = tanks.length > 1;
     $('#v-refuel').innerHTML = `
-      <div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="tanks">${IC.back}</button><div><div class="title">Log refuel</div><div class="sub">${dtstr(Date.now())}</div></div></div>
+      <div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="${backOf.refuel || 'tanks'}">${IC.back}</button><div><div class="title">Log refuel</div><div class="sub">Depths, pump litres and price</div></div></div>
       <div class="seg"><button class="${refuelSel === 'port' ? 'on' : ''}" data-act="refuel-sel" data-t="port">${esc(s.tanks[0].name)}</button><button class="${refuelSel === 'stbd' ? 'on' : ''}" data-act="refuel-sel" data-t="stbd">${esc(s.tanks[1].name)}</button><button class="${refuelSel === 'both' ? 'on' : ''}" data-act="refuel-sel" data-t="both">Both</button></div>
       <div class="card">
         ${tanks.map((t) => `<div class="field"><label for="rb-${t.id}">${two ? esc(t.name) + ': ' : ''}Depth before<small id="rbL-${t.id}">dip before filling</small></label><div class="inbox"><input id="rb-${t.id}" inputmode="decimal" data-rf="1"><span>${RUL()}</span></div></div>`).join('')}
@@ -529,8 +645,13 @@
         ${roughBox('rf-rough')}
       </div>
       <div class="card dark" id="rf-check"><div class="sub">Enter the readings to compare them with the tank curve.</div></div>
-      ${(() => { const fx = Core.live.fix, ns = fx && nearestStation(fx.lat, fx.lon, 1000); return ns ? `<div class="note">At <b>${esc(ns.st.name)}</b> (${fi(ns.m)} m) — the price is saved to this station's history.</div>` : ''; })()}
-      <div class="card"><div class="field"><label for="rprice">Price</label><div class="inbox"><input id="rprice" inputmode="decimal" value="${esc(s.settings.price)}" data-rf="1"><span>€/L</span></div></div><div class="sub" id="rtotal"></div></div>
+      <div class="card"><div class="cardhead"><div class="h">Fuel from</div></div>
+        <div class="seg" style="margin:0"><button class="${refuelSrc === 'station' ? 'on' : ''}" data-act="refuel-src" data-s="station">Fuel station</button><button class="${refuelSrc === 'canister' ? 'on' : ''}" data-act="refuel-src" data-s="canister">Canister</button></div>
+        ${refuelSrc === 'station' ? `<div class="field"><label for="rst">Station<small>optional — pick or type</small></label><div class="inbox wide" style="width:60%"><input id="rst" list="rst-list" value="${esc(refuelStName)}" autocomplete="off"></div></div>
+        <datalist id="rst-list">${stationNames().map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>` : ''}
+      </div>
+      <div class="card"><div class="field"><label for="rprice">Price<small>${refuelSrc === 'canister' ? 'what the canister fuel cost' : 'paid at the pump'}</small></label><div class="inbox"><input id="rprice" inputmode="decimal" value="${esc(dec(String(s.settings.price || '')))}" data-rf="1"><span>€/L</span></div></div><div class="sub" id="rtotal"></div>
+        ${whenField('rwhen')}</div>
       <div class="btnrow"><button class="btn primary" data-act="save-refuel">Save refuel</button></div>`;
   };
   function refuelCalc() {
@@ -569,15 +690,16 @@
   R.range = () => {
     const v = $('#v-range');
     if (!rangeBuilt) {
-      v.innerHTML = `<div class="top"><div><div class="title">Range</div><div class="sub" id="range-sub"></div></div></div>
+      v.innerHTML = `<div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Range &amp; planning</div><div class="sub" id="range-sub"></div></div></div>
         <div class="seg" id="range-seg"></div>
         <div class="seg" id="range-area" style="margin-top:8px"></div>
         <div id="range-start"></div>
+        <div id="range-dyn"></div>
         <div class="mapbox" style="height:40vh;min-height:240px;margin-top:8px"><div id="map-range" class="map"></div></div>
         <div class="note" id="range-status"></div>
-        <div id="range-plan"></div>
         <div id="range-route"></div>
-        <div id="range-dyn"></div>`;
+        <div id="range-plan"></div>
+        <div class="note" id="range-note"></div>`;
       getMap('range').on('click', rangeTap).on('contextmenu', (ev) => setRangeStart(ev.latlng.lat, ev.latlng.lng)); rangeBuilt = true;
     }
     if (!rangeEng) rangeEng = S().active ? S().active.mode : 'both';
@@ -598,8 +720,8 @@
       <div class="chips" style="padding-top:10px">${Core.MODES.map((m) => `<button class="chip ${m === rangeEng ? 'on' : ''}" data-act="range-eng" data-m="${m}">${MODE_LABEL[m]}</button>`).join('')}</div>
       ${!r ? '<div class="warn">Dip both tanks once (Tanks → Log dip) to see the range.</div>' : `
       <div class="chips" style="padding-top:8px"><button class="chip ${rangeSpeed === 'now' ? 'on' : ''}" data-act="range-speed" data-s="now">At ${f(nowKn)} kn ${lv.sogAvg >= 2 ? '(now)' : ''}</button><button class="chip ${rangeSpeed === 'eco' ? 'on' : ''}" data-act="range-speed" data-s="eco">At ${f(ecoKn)} kn (economy)</button></div>
-      <div class="card dark"><div class="cardhead"><div><div class="sub">${rangeMode === 'round' ? 'Turn back before' : 'Reach'}</div><div class="num" style="font-size:30px">${fi(nmv(r))} NM</div><div class="sub">${f(r.lpnm)} L/NM at ${f(kn)} kn</div></div><div style="text-align:right;max-width:170px" class="sub">${rangeEng === 'both' ? 'Limited by ' + esc(Core.tank(r.limit).name) + ' tank' + (isFinite(r.otherNm) ? ` (other lasts ${fi(rangeMode === 'round' ? r.otherNm / 2 : r.otherNm)} NM)` : '') : 'Only the ' + esc(Core.tank(rangeEng).name) + ' tank is used'}<br>Dashed: ${fi(nmv(r2))} NM at ${f(alt)} kn</div></div></div>`}
-      <div class="note">Usable fuel excludes what lies below the suction pipe and your ${s.settings.reservePct}% reserve. Open water avoids land and water shallower than the ${f(s.settings.draftM)} m draft limit (100 m grid); Fairways follows marked fairway lines. Planning aid only — wind and sea add to consumption.</div>`;
+      <div class="card dark"><div class="cardhead"><div><div class="sub">${rangeMode === 'round' ? 'Turn back before' : 'Reach'}</div><div class="num" style="font-size:30px">${fi(nmv(r))} NM</div><div class="sub">${f(r.lpnm)} L/NM at ${f(kn)} kn</div></div><div style="text-align:right;max-width:170px" class="sub">${rangeEng === 'both' ? 'Limited by ' + esc(Core.tank(r.limit).name) + ' tank' + (isFinite(r.otherNm) ? ` (other lasts ${fi(rangeMode === 'round' ? r.otherNm / 2 : r.otherNm)} NM)` : '') : 'Only the ' + esc(Core.tank(rangeEng).name) + ' tank is used'}<br>Dashed: ${fi(nmv(r2))} NM at ${f(alt)} kn</div></div></div>`}`;
+    $('#range-note').textContent = `Usable fuel excludes what lies below the suction pipe. Open water avoids land and water shallower than the ${f(s.settings.draftM)} m draft limit (100 m grid); Fairways follows marked fairway lines. Planning aid only — wind and sea add to consumption.`;
     const m = maps.range; m._over.clearLayers(); clearRoute();
     const man = s.settings.rangeStart;
     const c = man ? [man.lat, man.lon] : lv.fix ? [lv.fix.lat, lv.fix.lon] : null;
@@ -660,7 +782,7 @@
   const plan = { on: false, dest: null, vias: [], speed: 'eco', customKn: 7, res: null, sel: 'cheapest', busy: false, layer: null, msg: '' };
   const NMm = 1852;
   const planKn = () => { const e = Core.economy(), lv = Core.live; if (plan.speed === 'eco') return e ? e.best.kn : 6.5; if (plan.speed === 'now') return lv.sogAvg >= 2 ? lv.sogAvg : 7; return plan.customKn; };
-  const ptName = (p) => p.name || (f(p.lat, 3) + ', ' + f(p.lon, 3));
+  const ptName = (p) => p.name || (p.lat.toFixed(3) + ' / ' + p.lon.toFixed(3));
   function clearPlanLayer() { if (plan.layer && maps.range) maps.range.removeLayer(plan.layer); plan.layer = null; }
   function renderPlanPanel() {
     const box = $('#range-plan'); if (!box) return;
@@ -677,7 +799,7 @@
         <button class="${plan.speed === 'now' ? 'on' : ''}" data-act="plan-speed" data-s="now">Now ${f(lv.sogAvg >= 2 ? lv.sogAvg : 7)} kn</button>
         <button class="${plan.speed === 'custom' ? 'on' : ''}" data-act="plan-speed" data-s="custom">Other</button></div>
       ${plan.speed === 'custom' ? `<div class="field"><label for="plan-kn">Speed</label><div class="inbox"><input id="plan-kn" inputmode="decimal" value="${plan.customKn}" data-act="plan-kn"><span>kn</span></div></div>` : ''}
-      <div class="field"><label for="plan-arrive">Fuel left at destination<small>both tanks, above the reserve</small></label><div class="inbox"><input id="plan-arrive" inputmode="decimal" value="${s.planArriveL ?? 50}" data-act="setnum" data-k="planArriveL"><span>L</span></div></div>
+      <div class="field"><label for="plan-arrive">Fuel left at destination<small>both tanks together, usable fuel</small></label><div class="inbox"><input id="plan-arrive" inputmode="decimal" value="${s.planArriveL ?? 50}" data-act="setnum" data-k="planArriveL"><span>L</span></div></div>
       <div class="field"><label for="plan-extra">Extra per refuel<small>on top of what the next leg needs</small></label><div class="inbox"><input id="plan-extra" inputmode="decimal" value="${s.planExtraL ?? 20}" data-act="setnum" data-k="planExtraL"><span>L</span></div></div>
       <div class="sub">Route: ${s.rangeArea === 'fairway' ? 'along fairways' : s.rangeArea === 'water' ? 'over open water' : 'straight lines (Circle mode)'} · ${MODE_LABEL[rangeEng || 'both']} · draft limit ${f(s.draftM)} m</div>
       <button class="btn primary" data-act="plan-calc" ${plan.dest && !plan.busy ? '' : 'disabled'}>${plan.busy ? 'Calculating…' : 'Calculate plan'}</button>
@@ -693,7 +815,7 @@
     try {
       const kn = planKn(), mode = rangeEng || 'both', lf = Core.loadFactor(s.lastLoad);
       const rate = {}; Core.ENG.forEach((e) => { rate[e] = (lf * Core.lphEng(e, mode, kn)) / kn; });
-      const tanks = {}; Core.ENG.forEach((e) => { const u = Core.usable(e), tk = Core.tank(e); tanks[e] = { level: u.L, min: u.dead + u.reserve, cap: tk.capacity }; });
+      const tanks = {}; Core.ENG.forEach((e) => { const u = Core.usable(e), tk = Core.tank(e); tanks[e] = { level: u.L, min: u.dead, hard: u.dead, cap: tk.capacity }; });
       const start = { lat: ctxR.c[0], lon: ctxR.c[1], name: 'Start' }, dest = plan.dest;
       const hv = (a, b) => Core.haversine([a.lat, a.lon], [b.lat, b.lon]);
       const chain = [start].concat(plan.vias, [dest]);
@@ -704,27 +826,47 @@
       const pts = chain.concat(cands.map((x) => x.st));
       const nodes = [{ kind: 'start', name: 'Start' }].concat(plan.vias.map((v) => ({ kind: 'via', name: ptName(v) })), [{ kind: 'end', name: ptName(dest) }],
         cands.map((x) => { const lp = lastPrice(x.st.id); return { kind: 'station', name: x.st.name, st: x.st, price: lp ? lp.price : defPrice, priceEstimated: !lp }; }));
-      let D, how = 'straight lines';
+      let D, how = 'straight lines', note = '';
       const useSea = s.rangeArea !== 'circle' && Sea.meta && !(ctxR.err && ctxR.err !== 'nostart');
       if (useSea) {
         let maxD = 0; pts.forEach((p) => pts.forEach((q) => { maxD = Math.max(maxD, hv(p, q)); }));
         const res = await Sea.matrix(pts.map((p) => ({ lat: p.lat, lon: p.lon })), s.rangeArea, s.draftM, Math.min(500000, maxD * 1.6 + 20000),
           ([k, n]) => { plan.msg = `Calculating sea distances ${k}/${n}…`; const el = $('#plan-msg'); if (el) el.textContent = plan.msg; });
         D = res.D; how = s.rangeArea === 'water' ? 'open water' : 'fairways';
+        // start, stop-overs or destination unreachable on the sea grid (on land / too shallow): fall back to straight lines
+        const bad = chain.map((_, i) => i).filter((i) => pts.every((_, j) => j === i || !isFinite(D[i][j])));
+        if (bad.length) {
+          note = `${bad.map((i) => (i === 0 ? 'Start' : i === chain.length - 1 ? 'Destination' : 'Stop-over ' + i)).join(', ')} not reachable ${how === 'fairways' ? 'along fairways' : 'over open water'} with the ${f(s.draftM)} m draft limit (on land, or too shallow nearby) — using straight lines × 1.2 instead.`;
+          D = pts.map((p) => pts.map((q) => hv(p, q) * 1.2)); how = 'straight lines';
+        }
       } else D = pts.map((p) => pts.map((q) => hv(p, q)));
+      const lostSt = cands.filter((_, k) => !isFinite(D[0][chain.length + k]) && chain.every((_, j) => !isFinite(D[j][chain.length + k]))).length;
       const order = chain.map((_, i) => i);
       const r = Planner.plan({ D, nodes, order, tanks, rate, arriveL: s.planArriveL ?? 50, extraL: s.planExtraL ?? 20, defaultPrice: defPrice, kn, stopMin: 15, maxStops: 4 });
-      plan.res = { r, nodes, pts, kn, how, mode, D }; plan.sel = r.cheapest ? 'cheapest' : 'shortest';
-      plan.msg = r.cheapest ? `${r.tried} combinations checked · ${cands.length} stations near the route · distances ${how}` : '';
+      const above = (e) => (rate[e] ? `${Core.tank(e).name} ${fi(tanks[e].level - tanks[e].min)} L` : null);
+      const diag = { above: Core.ENG.map(above).filter(Boolean).join(' · '), lpnm: rate.port + rate.stbd, kn, directNm: D[0][chain.length - 1] / NMm, cands: cands.length, lostSt, how, note, cap: Core.ENG.filter((e) => rate[e]).reduce((a, e) => a + tanks[e].cap - tanks[e].min, 0) };
+      plan.res = { r, nodes, pts, kn, how, mode, D, diag, rate, tanks }; plan.sel = r.cheapest ? 'cheapest' : 'shortest';
+      plan.msg = r.cheapest ? `${r.tried} combinations checked · ${cands.length} stations near the route${lostSt ? ` (${lostSt} not reachable by sea)` : ''} · distances ${how}` : '';
     } catch (e) { plan.msg = 'Planning failed: ' + e.message; }
     plan.busy = false; renderPlanPanel();
   }
   function renderPlanResults() {
     const out = $('#plan-out'); if (!out || !plan.res) return;
     const { r, nodes } = plan.res;
+    const dg = plan.res.diag || {};
+    const diagHtml = `<div class="sub" style="padding-top:6px">Usable fuel now: ${dg.above || '–'} · consumption ${f(dg.lpnm)} L/NM at ${f(dg.kn)} kn · direct ${isFinite(dg.directNm) ? f(dg.directNm) + ' NM' : 'not reachable'} · ${dg.cands} stations near the route${dg.lostSt ? ` (${dg.lostSt} not reachable by sea)` : ''} · distances ${dg.how}</div>`;
+    const noteHtml = dg.note ? `<div class="warn" style="margin:8px 0 0 0">${esc(dg.note)}</div>` : '';
     if (!r.cheapest) {
-      const d = r.failure && r.failure.direct;
-      out.innerHTML = `<div class="warn" style="margin:8px 0 0 0">No plan reaches the destination with your reserve and ${S().settings.planArriveL ?? 50} L left on arrival${d && isFinite(d.shortfall) ? ` — the direct route is short by about ${fi(d.shortfall)} L` : ' — the destination or a leg is not reachable with this route type'}. Try a fuel station closer to the route, a lower arrival amount, the economy speed, or another route type.</div>`;
+      const d = r.failure && r.failure.direct, arrive = S().settings.planArriveL ?? 50;
+      const why = [];
+      const empty = Core.ENG.filter((e) => plan.res.rate && plan.res.rate[e] && plan.res.tanks[e].level <= plan.res.tanks[e].min + 1);
+      if (empty.length) why.push(`${empty.length > 1 ? 'Both tanks are' : 'The ' + Core.tank(empty[0]).name + ' tank is'} empty (at or below the suction pipe) — dip again if this is wrong.`);
+      if (!isFinite(dg.directNm) && !(d && isFinite(d.shortfall))) why.push(`The destination cannot be reached ${dg.how === 'fairways' ? 'along fairways' : 'over open water'} from the start with the ${f(S().settings.draftM)} m draft limit. Try another route type or a lower draft limit.`);
+      if (arrive > dg.cap) why.push(`"Fuel left at destination" (${fi(arrive)} L) is more than the tanks can hold (${fi(dg.cap)} L usable).`);
+      if (!dg.cands) why.push('There are no fuel stations near the route. Add one on the map (tap the map → Add fuel station here) or download sea data again to update the station list.');
+      else if (dg.lostSt === dg.cands) why.push('None of the fuel stations near the route can be reached by sea with this route type.');
+      if (d && isFinite(d.shortfall)) why.push(`Going direct you would be short by about ${fi(d.shortfall)} L${r.failure.best ? `; the best combination with refuelling is still short by about ${fi(r.failure.best.shortfall)} L` : ''}.`);
+      out.innerHTML = `${noteHtml}<div class="warn" style="margin:8px 0 0 0"><b>No plan found.</b> ${why.map(esc).join(' ')} Try a lower "Fuel left at destination", the economy speed, a fuel station closer to the route, or Circle mode.</div>${diagHtml}`;
       return;
     }
     const labels = { cheapest: 'Cheapest', fewest: 'Fewest stops', shortest: 'Shortest' };
@@ -745,8 +887,9 @@
         <div class="tile"><div class="lbl">Distance</div><div class="num mid">${f(p.nm)}</div><div class="hint">NM · ${dur(p.hours)}</div></div>
         <div class="tile"><div class="lbl">Fuel bought</div><div class="num mid">${fi(p.litresBought)}</div><div class="hint">L · ${p.stops} stop${p.stops === 1 ? '' : 's'}</div></div>
         <div class="tile dark"><div class="lbl">Cost</div><div class="num mid">${fi(p.buy)} €</div><div class="hint">${p.estimated ? 'includes estimates' : 'known prices'}</div></div></div>
+      ${noteHtml}
       <div style="padding-top:8px">${legs}</div>
-      <div class="sub" style="padding-top:6px">At the destination: P ${fi(p.end.port)} L · S ${fi(p.end.stbd)} L. ${esc(plan.msg)}</div>`;
+      <div class="sub" style="padding-top:6px">At the destination: P ${fi(p.end.port)} L · S ${fi(p.end.stbd)} L. ${esc(plan.msg)}</div>${diagHtml}`;
     drawPlan(p);
   }
   async function drawPlan(p) {
@@ -792,7 +935,7 @@
     }
     if (!isFinite(nm)) nm = Core.haversine(ctx.c, [st.lat, st.lon]) / 1852;
     const fuel = nm * ctx.r.lpnm, ok = nm <= ctx.r.oneWay;
-    const el = $('#st-route'); if (el && openStation === st) el.innerHTML = `${f(nm)} NM ${how} · ${fi(fuel)} L at ${f(ctx.kn)} kn · <b style="color:${ok ? '#1F6E5A' : '#A63A2A'}">${ok ? 'reachable with reserve' : 'beyond range'}</b>`;
+    const el = $('#st-route'); if (el && openStation === st) el.innerHTML = `${f(nm)} NM ${how} · ${fi(fuel)} L at ${f(ctx.kn)} kn · <b style="color:${ok ? '#1F6E5A' : '#A63A2A'}">${ok ? 'reachable' : 'beyond range'}</b>`;
   }
   const whyText = (e) => ({ nodata: 'No sea data downloaded yet (More → Sea data).', outside: 'The start point is outside the sea-data area.', land: 'The start point is on land or too far from water deeper than the draft limit — long-press the map at your harbour to choose a start point.', 'no fairway data': 'The sea data has no fairways.', nostart: 'No start point yet.' }[e] || e);
   const startIcon = () => L.divIcon({ className: 'boat-icon', iconSize: [22, 22], iconAnchor: [11, 11], html: '<svg width="22" height="22" viewBox="-11 -11 22 22"><circle r="8" fill="#B8470F" stroke="#fff" stroke-width="3"/><circle r="2.5" fill="#fff"/></svg>' });
@@ -829,7 +972,7 @@
       const fuel = nm * r.lpnm, okOne = nm <= r.oneWay, okRound = nm <= r.round;
       $('#range-route').innerHTML = `<div class="card"><div class="cardhead"><div><div class="sub">Route ${area === 'water' ? 'over open water' : 'along fairways'}</div><div class="num" style="font-size:24px">${f(nm)} NM</div></div>
         <div style="text-align:right"><div class="sub">Fuel at ${f(kn)} kn</div><div class="num" style="font-size:20px">${fi(fuel)} L one way · ${fi(2 * fuel)} L back</div></div></div>
-        <div class="sub" style="color:${okRound ? '#1F6E5A' : okOne ? '#B8470F' : '#A63A2A'};font-weight:600">${okRound ? 'Enough fuel there and back, with reserve.' : okOne ? 'Enough one way only — refuel there.' : 'Not enough fuel to get there with the reserve kept.'}</div>${startBtn}</div>`;
+        <div class="sub" style="color:${okRound ? '#1F6E5A' : okOne ? '#B8470F' : '#A63A2A'};font-weight:600">${okRound ? 'Enough fuel there and back.' : okOne ? 'Enough one way only — refuel there.' : 'Not enough fuel to get there.'}</div>${startBtn}</div>`;
     } catch (e) { toast('Route failed: ' + e.message); }
   }
 
@@ -839,10 +982,12 @@
     const s = S().settings;
     $('#v-more').innerHTML = `
       <div class="top"><div><div class="title">Settings</div><div class="sub">Maps, economy, range, backup</div></div></div>
+      <div class="card" data-noi18n><div class="cardhead"><div class="h">Kieli / Language</div></div>
+        <div class="seg" style="margin:0"><button class="${I18N.lang === 'fi' ? 'on' : ''}" data-act="lang" data-l="fi">Suomi</button><button class="${I18N.lang === 'en' ? 'on' : ''}" data-act="lang" data-l="en">English</button></div></div>
       <div class="card"><div class="cardhead"><div class="h">Base map</div></div>
         <div class="seg" style="margin:0"><button class="${s.base === 'traficom' ? 'on' : ''}" data-act="base" data-b="traficom">Traficom</button><button class="${s.base === 'osm' ? 'on' : ''}" data-act="base" data-b="osm">OSM</button><button class="${s.base === 'nls' ? 'on' : ''}" data-act="base" data-b="nls">NLS</button></div>
         <div class="check"><input type="checkbox" id="seamarks" ${s.seamarks ? 'checked' : ''} data-act="seamarks"><label for="seamarks">OpenSeaMap seamarks on top</label></div>
-        <div class="field"><label for="tlayer">Traficom chart series</label><select id="tlayer" data-act="tlayer" style="height:44px;border-radius:10px;border:1px solid #D9D5C9;background:#fff;max-width:60%">${TRAFICOM_LAYERS.map((l) => `<option ${l === s.traficomLayer ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+        <div class="field"><label for="tlayer">Traficom chart series</label><select id="tlayer" data-noi18n data-act="tlayer" style="height:44px;border-radius:10px;border:1px solid #D9D5C9;background:#fff;max-width:60%">${TRAFICOM_LAYERS.map((l) => `<option ${l === s.traficomLayer ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
         <button class="btn small" data-act="detect">Check Traficom service</button>
         <div class="sub" id="detect-out">Matrix: ${esc(s.traficomMatrix)}{z} · ${esc(s.traficomFormat)}</div>
         <div class="field"><label for="nlskey">NLS API key<small>free from Maanmittauslaitos; needed for the NLS map</small></label></div>
@@ -856,7 +1001,6 @@
         <div class="field"><label for="mincruise">Cruising from<small>slower = manoeuvring, never proposed</small></label><div class="inbox"><input id="mincruise" inputmode="decimal" value="${s.minCruiseKn}" data-act="setnum" data-k="minCruiseKn"><span>kn</span></div></div>
         <div class="field"><label for="effm">Efficient cruise margin<small>max extra fuel per NM vs the best</small></label><div class="inbox"><input id="effm" inputmode="decimal" value="${s.effMarginPct}" data-act="setnum" data-k="effMarginPct"><span>%</span></div></div>
         <div class="field"><label for="rpmstep">RPM rounding</label><div class="inbox"><input id="rpmstep" inputmode="decimal" value="${s.rpmStep}" data-act="setnum" data-k="rpmStep"><span>rpm</span></div></div>
-        <div class="field"><label for="reserve">Reserve<small>% of usable capacity (above suction pipe)</small></label><div class="inbox"><input id="reserve" inputmode="decimal" value="${s.reservePct}" data-act="setnum" data-k="reservePct"><span>%</span></div></div>
       </div>
       <div class="card"><div class="cardhead"><div class="h">Ruler</div></div>
         <div class="seg" style="margin:0"><button class="${RUL() === 'cm' ? 'on' : ''}" data-act="ruler-unit" data-u="cm">Centimetres (0.5 cm)</button><button class="${RUL() === 'mm' ? 'on' : ''}" data-act="ruler-unit" data-u="mm">Millimetres</button></div>
@@ -873,7 +1017,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 4.3 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 4.5 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -915,9 +1059,14 @@
     offlineBusy = false;
   }
 
+  function loadSheet() {
+    const last = S().settings.lastLoad || 'normal';
+    sheet(`<h3>Load on board</h3><p>Helps the app learn how load changes consumption.</p><div class="list">${['light', 'normal', 'full'].map((l) => `<button class="item" data-act="start-with-load" data-l="${l}"><span class="main"><b>${LOAD_LABEL[l]}</b><span>${LOAD_HINT[l]}</span></span>${l === last ? '<span class="right"><span class="sub">last used</span></span>' : ''}</button>`).join('')}</div>`);
+  }
+
   // ---------- actions ----------
   const RPMS = []; for (let r = 700; r <= 2800; r += 100) RPMS.push(r);
-  let sheetUnit = 'mm';
+  let sheetUnit = 'mm', dipKindSel = 'check';
   function readCleanTable() {
     S().hull.clean = S().hull.clean.map((r, i) => { const a = $('#ch-r' + i), b = $('#ch-k' + i); return [a ? Core.num(a.value) : r[0], b ? Core.num(b.value) : r[1]]; });
   }
@@ -928,9 +1077,16 @@
     'center': () => { follow = true; const lv = Core.live; if (lv.fix) maps.helm.setView([lv.fix.lat, lv.fix.lon], Math.max(maps.helm.getZoom(), 13)); else toast('Waiting for GPS…'); },
     'start-trip': () => {
       if (!('geolocation' in navigator)) return toast('This browser has no GPS access.');
-      const last = S().settings.lastLoad || 'normal';
-      sheet(`<h3>Load on board</h3><p>Helps the app learn how load changes consumption.</p><div class="list">${['light', 'normal', 'full'].map((l) => `<button class="item" data-act="start-with-load" data-l="${l}"><span class="main"><b>${LOAD_LABEL[l]}</b><span>${LOAD_HINT[l]}</span></span>${l === last ? '<span class="right"><span class="sub">last used</span></span>' : ''}</button>`).join('')}</div>`);
+      if (Core.needsPreDip()) {
+        const first = !S().events.length;
+        sheet(`<h3>Dip before departure?</h3><p>${first ? 'No dip recorded yet. A dip before departure lets the app follow the fuel levels and measure consumption.' : 'The tanks have not been dipped since the last trip. A dip now makes the next consumption measurement exact.'}</p>
+          <div class="btnrow"><button class="btn grow" data-act="predip-skip">Skip</button><button class="btn primary" data-act="predip">Dip tanks</button></div>`);
+        return;
+      }
+      loadSheet();
     },
+    'predip-skip': () => loadSheet(),
+    'predip': () => { closeSheet(); go('predip'); },
     'start-with-load': async (el) => {
       closeSheet();
       await Core.startTrip('both', el.dataset.l); follow = true; trackCache = []; helmTrack.setLatLngs([]); renderHelmDyn(); toast('Trip started (' + LOAD_LABEL[el.dataset.l].toLowerCase() + ' load). Set RPM when you settle on a cruise.');
@@ -953,9 +1109,29 @@
     'end-trip': () => confirmSheet('End this trip?', 'The trip is saved and you can dip the tanks next.', 'End trip', async () => { const tr = await Core.stopTrip(); go('tripend', { id: tr.id }); setTimeout(() => Wind.processPending(windDone), 2000); }),
     'save-dips': () => {
       let n = 0; const rough = $('#dip-rough').checked;
-      S().tanks.forEach((t) => { const mm = rv($('#dip-' + t.id).value); if (isFinite(mm) && mm >= 0) { Core.addDip(t.id, mm, rough); n++; } });
+      S().tanks.forEach((t) => { const mm = rv($('#dip-' + t.id).value); if (isFinite(mm) && mm >= 0) { Core.addDip(t.id, mm, rough, undefined, 'after'); n++; } });
       toast(n ? 'Dip saved. Consumption curves updated.' : 'Trip saved without a dip.');
       go('trips');
+    },
+    'save-predip': () => {
+      let n = 0; const rough = $('#dip-rough').checked;
+      S().tanks.forEach((t) => { const mm = rv($('#dip-' + t.id).value); if (isFinite(mm) && mm >= 0) { Core.addDip(t.id, mm, rough, undefined, 'before'); n++; } });
+      if (!n) return toast('Enter at least one depth, or skip');
+      toast('Dip saved'); go('helm'); loadSheet();
+    },
+    'manual-new': () => go('tripform', {}),
+    'manual-edit': (el) => go('tripform', { id: el.dataset.id }),
+    'mt-mode': (el) => { mtMode = el.dataset.m; segOn(el); mtCalc(); },
+    'mt-load': (el) => { mtLoad = el.dataset.l; segOn(el); mtCalc(); },
+    'mt-save': (el) => {
+      const c = mtCalc(), start = readWhen('mt-start');
+      if (!c.ok || !(c.nm <= 500) || c.h > 48) return toast('Enter the distance and the time under way');
+      if (c.nm / c.h > 40) return toast('Average speed over 40 kn — check the values');
+      if (start + c.h * 3600000 > Date.now() + 300000) return toast('The trip cannot end in the future');
+      const o = { start, hours: c.h, distNm: c.nm, mode: mtMode, load: mtLoad, name: $('#mt-name').value.trim() };
+      const tr = el.dataset.id ? Core.updateManualTrip(el.dataset.id, o) : Core.addManualTrip(o);
+      toast(el.dataset.id ? 'Saved' : 'Trip added');
+      go('trip', { id: tr.id });
     },
     'open-trip': (el) => go('trip', { id: el.dataset.id }),
     'rename-trip': (el) => { const tr = S().trips.find((t) => t.id === el.dataset.id); tr.name = $('#trip-name').value.trim() || tr.name; Core.save(); toast('Saved'); R.trip(); },
@@ -975,19 +1151,27 @@
     },
     'tank-sel': (el) => { tankSel = el.dataset.t; R.tanks(); },
     'dip-sheet': () => {
-      const t = Core.tank(tankSel);
-      sheet(`<h3>Dip ${esc(t.name)} tank</h3><p>Ruler depth. Litres come from the tank curve.</p>
-        <div class="card"><div class="field"><label for="sd-mm">Depth<small id="sd-L"> </small></label><div class="inbox"><input id="sd-mm" inputmode="decimal" data-sdip="1"><span>${RUL()}</span></div></div>
+      // default type: right after a trip (within 6 h, no dip since) it is "after trip", otherwise "separate"
+      const lastEnd = S().trips.reduce((m, tr) => Math.max(m, tr.end || 0), 0);
+      dipKindSel = Date.now() - lastEnd < 6 * 3600000 && Core.needsPreDip() ? 'after' : 'check';
+      sheet(`<h3>Log dip</h3><p>Ruler depth. Litres come from the tank curve. Leave a tank empty if you did not dip it.</p>
+        <div class="card">${S().tanks.map((t) => `<div class="field"><label for="sd-${t.id}" style="color:${t.color};font-weight:600">${esc(t.name)}<small id="sdL-${t.id}"> </small></label><div class="inbox"><input id="sd-${t.id}" inputmode="decimal" data-sdip="${t.id}"><span>${RUL()}</span></div></div>`).join('')}
         ${roughBox('sd-rough')}
-        <div class="check"><input type="checkbox" id="sd-both"><label for="sd-both">I'll dip the other tank too</label></div></div>
+        <div class="seg" style="margin:0">${[['after', 'After trip'], ['before', 'Before trip'], ['check', 'Separate']].map(([k, l]) => `<button class="${dipKindSel === k ? 'on' : ''}" data-act="sd-kind" data-k="${k}">${l}</button>`).join('')}</div>
+        ${whenField('sd-when')}</div>
         <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="save-dip">Save dip</button></div>`);
-      setTimeout(() => $('#sd-mm').focus(), 100);
+      setTimeout(() => { const i = $('#sd-' + tankSel); if (i) i.focus(); }, 100);
     },
+    'sd-kind': (el) => { dipKindSel = el.dataset.k; el.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el)); },
     'save-dip': () => {
-      const mm = rv($('#sd-mm').value); if (!isFinite(mm)) return toast('Enter the depth in ' + RUL());
-      Core.addDip(tankSel, mm, $('#sd-rough').checked); const both = $('#sd-both').checked; closeSheet();
-      if (mm < Core.tank(tankSel).pipeMm) toast('Below suction pipe — engine may draw air', 4000);
-      if (both) { tankSel = S().tanks.find((t) => t.id !== tankSel).id; R.tanks(); A['dip-sheet'](); } else R.tanks();
+      const t0 = readWhen('sd-when'), rough = $('#sd-rough').checked;
+      if (t0 > Date.now() + 300000) return toast('The time is in the future');
+      let n = 0, low = false;
+      S().tanks.forEach((t) => { const mm = rv($('#sd-' + t.id).value); if (isFinite(mm) && mm >= 0) { Core.addDip(t.id, mm, rough, t0, dipKindSel); n++; if (mm < t.pipeMm) low = true; } });
+      if (!n) return toast('Enter the depth in ' + RUL());
+      closeSheet();
+      toast(low ? 'Below suction pipe — engine may draw air' : 'Dip saved', low ? 4000 : 2800);
+      (R[current] || R.tanks)();
     },
     'edit-tank': () => {
       const t = Core.tank(tankSel), byL = t.pipeL !== null && t.pipeL !== undefined;
@@ -1041,19 +1225,29 @@
     'accept-curve': () => { if (Core.acceptCurve()) toast('New tank curve in use'); closeSheet(); R.tanks(); },
     'reject-curve': () => { Core.rejectCurve(); closeSheet(); toast('Kept the current curve'); R.tanks(); },
     'restore-curve': (el) => confirmSheet('Restore this curve?', 'The current curve is kept in the list so you can switch back.', 'Restore', () => { Core.restoreCurve(+el.dataset.i); R.tanks(); }),
-    'del-event': (el) => confirmSheet('Delete this reading?', 'Levels, consumption curves and the tank-curve fit are recalculated without it.', 'Delete', () => { Core.deleteEvent(el.dataset.id); R.tanks(); }),
-    'refuel-sel': (el) => { refuelSel = el.dataset.t; R.refuel(); },
+    'del-event': (el) => confirmSheet('Delete this reading?', 'Levels, consumption curves and the tank-curve fit are recalculated without it.', 'Delete', () => { Core.deleteEvent(el.dataset.id); (R[current] || R.tanks)(); }),
+    'log-period': (el) => { logPeriod = el.dataset.p === 'all' ? 'all' : +el.dataset.p; R.log(); },
+    'del-refuel': (el) => confirmSheet('Delete this refuel?', 'Levels, consumption curves and the tank-curve fit are recalculated without it.', 'Delete', () => {
+      S().events.filter((e) => (e.group || e.id) === el.dataset.k).forEach((e) => Core.deleteEvent(e.id)); R.log();
+    }),
+    'refuel-sel': (el) => { refuelSel = el.dataset.t; S().settings.lastRefuelSel = refuelSel; Core.save(); R.refuel(); },
+    'refuel-src': (el) => { const i = $('#rst'); if (i) refuelStName = i.value; refuelSrc = el.dataset.s; el.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el)); const keep = {}; document.querySelectorAll('#v-refuel input').forEach((x) => { keep[x.id] = x.type === 'checkbox' ? x.checked : x.value; }); R.refuel(); Object.entries(keep).forEach(([k, v]) => { const x = document.getElementById(k); if (x) { if (x.type === 'checkbox') x.checked = v; else x.value = v; } }); refuelCalc(); },
     'save-refuel': () => {
       const c = refuelCalc();
       if (!c.ok) return toast(c.rows.length > 1 ? 'Enter depth before and after for both tanks and the pump total' : 'Enter the depth before filling and the litres pumped');
       const rough = $('#rf-rough').checked;
-      const p = Core.addRefuel(c.rows.map((r) => ({ tank: r.t.id, beforeMm: r.b, pumped: r.p, afterMm: r.a, brim: r.brim })), c.price, rough);
+      const stName = refuelSrc === 'station' && $('#rst') ? $('#rst').value.trim() : '';
+      const src = { type: refuelSrc, name: stName };
+      const tw = readWhen('rwhen'); if (tw > Date.now() + 300000) return toast('The time is in the future');
+      const p = Core.addRefuel(c.rows.map((r) => ({ tank: r.t.id, beforeMm: r.b, pumped: r.p, afterMm: r.a, brim: r.brim })), c.price, rough, tw, src);
+      refuelStName = stName;
       if (isFinite(c.price)) {
         S().settings.price = String(c.price); Core.save();
-        const fx = Core.live.fix, ns = fx && nearestStation(fx.lat, fx.lon, 1000);
-        if (ns) { Core.addStationPrice(ns.st.id, c.price, 'refuel', c.pumped); setTimeout(() => toast('Price saved for ' + ns.st.name), 1500); }
+        // a known station by name gets the price in its history
+        const st = stName && allStations().find((x) => x.name.toLowerCase() === stName.toLowerCase());
+        if (st) { Core.addStationPrice(st.id, c.price, 'refuel', c.pumped, tw); setTimeout(() => toast('Price saved for ' + st.name), 1500); }
       }
-      go('tanks');
+      go(backOf.refuel || 'tanks');
       if (p) proposalSheet(); else toast('Refuel saved');
     },
     'range-mode': (el) => { rangeMode = el.dataset.m; renderRange(); },
@@ -1101,6 +1295,7 @@
       catch (e) { out.textContent = 'Failed: ' + e.message; }
       btn.disabled = false;
     },
+    'lang': (el) => { if (el.dataset.l === I18N.lang) return; I18N.setLang(el.dataset.l); S().settings.lang = el.dataset.l; Core.save(); setTimeout(() => location.reload(), 150); },
     'base': (el) => { S().settings.base = el.dataset.b; if (el.dataset.b === 'nls' && !S().settings.nlsKey) toast('Add your NLS API key below; until then OSM is shown.'); Core.save(); refreshBaseLayers(); R.more(); },
     'detect': detectTraficom,
     'offline': saveOffline,
@@ -1124,7 +1319,8 @@
     const el = e.target;
     if (el.dataset.dip) dipPreview();
     if (el.dataset.rf) refuelCalc();
-    if (el.dataset.sdip) { const t = Core.tank(tankSel), mm = rv(el.value), Lv = Core.litres(t, mm); $('#sd-L').textContent = isFinite(Lv) ? '= ' + fi(Lv) + ' L' + (mm < t.pipeMm ? ' · below suction pipe!' : '') : ' '; }
+    if (el.dataset.mt) mtCalc();
+    if (el.dataset.sdip) { const t = Core.tank(el.dataset.sdip), mm = rv(el.value), Lv = Core.litres(t, mm); $('#sdL-' + t.id).textContent = isFinite(Lv) ? '= ' + fi(Lv) + ' L' + (mm < t.pipeMm ? ' · below suction pipe!' : '') : ' '; }
   });
   document.addEventListener('change', async (e) => {
     const el = e.target, act = el.dataset.act, s = S().settings;
