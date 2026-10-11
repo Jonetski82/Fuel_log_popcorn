@@ -82,7 +82,7 @@ const Core = (() => {
         { id: 'port', name: 'Port', color: '#A63A2A', capacity: 395, maxMm: 700, pipeMm: 30, pipeL: null },
         { id: 'stbd', name: 'Stbd', color: '#1F6E5A', capacity: 395, maxMm: 700, pipeMm: 30, pipeL: null }
       ],
-      anchors: [],      // known (mm, litres) points: {id,tank,mm,L,t}
+      anchors: [],      // known (mm, litres) points: {id, tank: 'port' | 'stbd' | 'both', mm, L, t}
       events: [],       // {id,t,type:'dip'|'refuel',tank,mm,rough, pumped,afterMm,brim,group,price}
       trips: [],
       active: null,
@@ -160,8 +160,10 @@ const Core = (() => {
     S.tanks.forEach((t) => { if (t.maxMm === 600 && t.capacity === 395) t.maxMm = 700; });   // untouched defaults: the table goes to 67.5 cm
     const T = S.curve.table || (S.curve.table = { mode: 'shared', edit: 'port', sets: {} });
     ['shared', 'port', 'stbd'].forEach((k) => { if (!T.sets[k]) T.sets[k] = { rows: [], full: false, bounds: [], methods: ['spline'] }; });
-    const sh = T.sets.shared;
-    if (!sh.rows.some((r) => isFinite(r[0]) && isFinite(r[1]))) { sh.rows = BOAT_TABLE.map((r) => r.slice()); sh.full = false; sh.bounds = []; sh.methods = ['poly2']; T.mode = 'shared'; }
+    if (!S.anchors.some((a) => a.tank === 'both') && !T.sets.shared.rows.some((r) => isFinite(r[0]) && isFinite(r[1]))) {
+      BOAT_TABLE.forEach((r) => S.anchors.push({ id: uid(), tank: 'both', mm: r[0], L: r[1], t: Date.now() }));
+      T.sets.shared.methods = ['poly2']; T.mode = 'shared';
+    }
     if (S.curve.sample && !S.curve.model && typeof TankFit !== 'undefined') {
       const top = Math.max(S.tanks[0].maxMm, ...BOAT_TABLE.map((r) => r[0]));
       const f = TankFit.fit(BOAT_TABLE, [], ['poly2'], top);
@@ -172,10 +174,24 @@ const Core = (() => {
     }
   }
 
+  // v4.9: one list of readings. Rows of the old Readings table become Known points.
+  function tableRowsToPoints() {
+    const T = S.curve.table; if (!T || T.rowsMoved) return;
+    T.rowsMoved = true;
+    [['shared', 'both'], ['port', 'port'], ['stbd', 'stbd']].forEach(([k, tid]) => {
+      const set = T.sets && T.sets[k]; if (!set) return;
+      (set.rows || []).filter((r) => isFinite(r[0]) && isFinite(r[1])).forEach((r) => {
+        if (!S.anchors.some((a) => (a.tank === tid || a.tank === 'both') && Math.abs(a.mm - r[0]) < 1 && Math.abs(a.L - r[1]) < 0.1)) S.anchors.push({ id: uid(), tank: tid, mm: r[0], L: r[1], t: Date.now() });
+      });
+      set.rows = [];
+    });
+  }
+
   async function init() {
     await openDb();
     S = migrate(await kvGet('state'));
     preloadTable();
+    tableRowsToPoints();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     refit();
     return S;
@@ -227,7 +243,7 @@ const Core = (() => {
       eqs.push({ terms, rhs, sigma: rough ? 6 : 2, kind: 'refuel', t: e.t, ids: mem.map((m) => m.id) });
       mem.filter((m) => m.brim).forEach((m) => eqs.push({ terms: [{ tk: tank(m.tank), mm: m.afterMm, sign: 1 }], rhs: tank(m.tank).capacity, sigma: m.rough ? 9 : 3, kind: 'brim', t: m.t }));
     });
-    S.anchors.forEach((a) => eqs.push({ terms: [{ tk: tank(a.tank), mm: a.mm, sign: 1 }], rhs: a.L, sigma: 2, kind: 'anchor', t: a.t }));
+    S.anchors.filter((a) => a.tank !== 'both').forEach((a) => eqs.push({ terms: [{ tk: tank(a.tank), mm: a.mm, sign: 1 }], rhs: a.L, sigma: 2, kind: 'anchor', t: a.t }));
     if (withEmpty && eqs.length) S.tanks.forEach((tk) => eqs.push({ terms: [{ tk, mm: 0, sign: 1 }], rhs: 0, sigma: 1, kind: 'empty', t: 0 }));
     return eqs;
   }
@@ -654,8 +670,12 @@ const Core = (() => {
     return [...ys].sort((a, b) => b - a);
   }
   function deleteEvent(id) { S.events = S.events.filter((e) => e.id !== id); refit(); proposeCurve(); save(); }
-  function addAnchor(tid, mm, L) { S.anchors.push({ id: uid(), tank: tid, mm, L, t: Date.now() }); const p = proposeCurve(); save(); return p; }
+  function addAnchor(tid, mm, L) { S.anchors.push({ id: uid(), tank: tid, mm, L, t: Date.now() }); const p = tid === 'both' ? null : proposeCurve(); save(); return p; }
+  function updateAnchor(id, tid, mm, L) { const a = S.anchors.find((x) => x.id === id); if (!a) return null; a.tank = tid; a.mm = mm; a.L = L; const p = proposeCurve(); save(); return p; }
   function deleteAnchor(id) { S.anchors = S.anchors.filter((a) => a.id !== id); proposeCurve(); save(); }
+  // known points for a fit: 'shared' = all points, a tank = its own points + the 'both' points
+  const anchorsFor = (key) => S.anchors.filter((a) => key === 'shared' || a.tank === 'both' || a.tank === key);
+  const pointsKey = (key) => anchorsFor(key).map((a) => a.mm + ':' + a.L).sort().join('|');
 
   // =====================================================================
   // GPS trip tracking
@@ -806,7 +826,7 @@ const Core = (() => {
     tank, litres, litresWith, baseL, unusableL, levelNow, usable, eventsFor, levelAfter, intervals, refit,
     lphEng, lphTotal, lpnm, lphSigma, lpnmSigma, economy, range, tripFuel, tripFuelTotal, tripMeasured,
     fitCurve, proposeCurve, acceptCurve, rejectCurve, restoreCurve, setBase, setTableModel, measuredRange, curveEquations,
-    addDip, addRefuel, deleteEvent, dipKind, needsPreDip, summary, seasons, tripEngineNm, tripEngineH, addAnchor, deleteAnchor,
+    addDip, addRefuel, deleteEvent, dipKind, needsPreDip, summary, seasons, tripEngineNm, tripEngineH, addAnchor, updateAnchor, deleteAnchor, anchorsFor, pointsKey,
     seasonTable, cleanKnAt, rpmFor, hullStatus, addCleaning,
     startTrip, stopTrip, setPaused, setMode, setRpm, resumeIfActive, activeTrack, trackGet, deleteTrip,
     exportAll, importAll, addManualTrip, updateManualTrip, kvGet, kvSet, addStationPrice, addUserStation, deleteUserStation, setTripLoad, setTripWind, condFactor, loadFactor, _onFix: (p) => onFix(p)

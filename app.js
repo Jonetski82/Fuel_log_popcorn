@@ -566,6 +566,59 @@
         <div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow dark" data-act="dip-sheet">Log dip</button></div>
       </div>`;
   };
+
+  // KNOWN POINTS: the one list of (depth, litres) readings; suggested fits computed from them
+  let kpOpen = false, kpEdit = null, kpTank = 'both';
+  const sugCache = new Map();
+  const kpKeyFor = (t) => (S().anchors.some((x) => x.tank === t.id) ? t.id : 'shared');
+  function fitSuggestions(key, tk) {
+    const pts = Core.anchorsFor(key).map((x) => [x.mm, x.L]);
+    if (pts.length < 2) return [];
+    const top = Math.max(tk.maxMm, ...pts.map((p) => p[0])), range = [0, top];
+    const ck = key + '#' + Core.pointsKey(key) + '#' + top;
+    if (sugCache.has(ck)) return sugCache.get(ck);
+    const out = [];
+    TankFit.METHODS.forEach((m) => { const e = TankFit.evaluate(pts, [], [m], top, range); if (e.ok && e.mono && isFinite(e.rms)) out.push({ methods: [m], bounds: [], rms: e.rms, model: e.model }); });
+    if (pts.length >= 6) { const s = TankFit.suggestBounds(pts, 2, top, range); if (s) { const e = TankFit.evaluate(pts, s.bounds, s.methods, top, range); if (e.ok && e.mono && isFinite(e.rms)) out.push({ methods: s.methods, bounds: s.bounds, rms: e.rms, model: e.model }); } }
+    out.sort((x, y) => x.rms - y.rms);
+    sugCache.set(ck, out); return out;
+  }
+  const curveRmsAt = (tk, pts) => Math.sqrt(pts.reduce((s, p) => s + (Core.litres(tk, p[0]) - p[1]) ** 2, 0) / Math.max(1, pts.length));
+  function knownPointsCard(t) {
+    const key = kpKeyFor(t), own = S().anchors.filter((x) => x.tank === t.id), both = S().anchors.filter((x) => x.tank === 'both');
+    const list = Core.anchorsFor(t.id).slice().sort((x, y) => x.mm - y.mm);
+    const shown = kpOpen ? list : list.slice(0, 6);
+    const rows = shown.map((x) => `<button class="item" data-act="kp-edit" data-id="${x.id}" style="padding:8px 12px;min-height:0"><span class="main"><b>${rs(x.mm)} = ${f(x.L)} L</b></span><span class="right"><span class="sub">${x.tank === 'both' ? 'both tanks' : esc(t.name)}</span></span></button>`).join('');
+    const sugg = fitSuggestions(key, t), pts = Core.anchorsFor(key).map((x) => [x.mm, x.L]);
+    let sugHtml = '';
+    if (sugg.length) {
+      const top = Math.max(t.maxMm, ...pts.map((p) => p[0])), yMax = Math.ceil((Math.max(t.capacity, ...pts.map((p) => p[1])) * 1.05) / 100) * 100;
+      const cur = curveRmsAt(t, pts), best = sugg[0];
+      const chart = lineChart([
+        { pts: Array.from({ length: 61 }, (_, i) => [(top * i) / 60, Core.litres(t, (top * i) / 60)]), color: '#9AA5AE', width: 2 },
+        { pts: Array.from({ length: 61 }, (_, i) => [(top * i) / 60, Math.max(0, TankFit.evalModel(best.model, (top * i) / 60))]), color: '#E07A2E', width: 2.5 },
+        { color: '#13212F', dots: pts.map((p) => [p[0], p[1], 3.5]), dotFill: '#E9B44C', dotStroke: '#13212F' }],
+        { label: 'Suggested fit', xMin: 0, xMax: top, yMin: 0, yMax, xTicks: [0.25, 0.5, 0.75, 1].map((q) => q * top), yTicks: Array.from({ length: yMax / 100 + 1 }, (_, i) => i * 100), xFmt: (v) => rn(v), yFmt: (v) => fi(v), xUnit: RUL(), vlines: best.bounds.map((b) => ({ x: b, color: '#4F5B66' })) });
+      sugHtml = `<div class="cardhead" style="padding-top:10px"><div class="h">Suggested fits</div><div class="sub">${key === 'shared' ? 'both tanks' : esc(t.name) + ' only'}</div></div>
+        <div class="sub">Curve in use: ±${f(cur)} L at these points</div>
+        ${sugg.slice(0, 3).map((x, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #ECE8DC"><div><b>${x.methods.map((m) => TF_LABEL[m]).join(' + ')}${i === 0 ? ' ★' : ''}</b><div class="sub">${x.bounds.length ? '2 areas · boundary ' + rs(x.bounds[0]) + ' · ' : ''}±${f(x.rms)} L</div></div><button class="btn small ${i === 0 ? 'primary' : ''}" data-act="kp-use" data-k="${key}" data-i="${i}">Use</button></div>`).join('')}
+        <div style="padding:6px 0 0 0">${chart}</div><div class="sub" style="padding-left:30px"><b style="color:#E07A2E">orange = best suggestion</b> · grey = curve in use · dots = known points</div>
+        <div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="go" data-v="tankfit">More options</button></div>`;
+    } else if (list.length < 2) sugHtml = '<div class="sub" style="padding-top:8px">Add at least two points to get suggested fits.</div>';
+    return `<div class="card" id="kp-card" style="gap:0"><div class="cardhead"><div class="h">Known points</div><div class="sub">${own.length} ${esc(t.name)} · ${both.length} both tanks</div></div>
+      <div class="sub" style="padding-bottom:4px">Depths where the litres are known, e.g. from filling an empty tank in measured steps. Tap a point to correct or delete it.</div>
+      ${rows || '<div class="sub">No known points yet.</div>'}
+      ${list.length > 6 ? `<div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="kp-more">${kpOpen ? 'Show fewer' : 'Show all ' + list.length}</button></div>` : ''}
+      <div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow dark" data-act="add-anchor">Add point</button></div>
+      ${sugHtml}</div>`;
+  }
+  function kpNotice(t) {
+    const key = kpKeyFor(t), sugg = fitSuggestions(key, t); if (!sugg.length) return '';
+    const pts = Core.anchorsFor(key).map((x) => [x.mm, x.L]), cur = curveRmsAt(t, pts), best = sugg[0];
+    if (!(cur > best.rms + 1.5) || S().curve.kpDismissed === key + '#' + Core.pointsKey(key)) return '';
+    return `<div class="card dark"><div class="cardhead"><div><div class="h">Better fit from known points</div><div class="sub">±${f(best.rms)} L instead of ±${f(cur)} L now</div></div><div style="display:flex;gap:6px"><button class="btn small" style="background:#fff;color:#13212F" data-act="kp-review">Review</button><button class="btn small" data-act="kp-dismiss" data-k="${key}">Later</button></div></div></div>`;
+  }
+
   // TANKS
   let tankSel = 'port';
   const ZERO = { shared: [0, 0, 0, 0, 0], port: [0, 0, 0, 0, 0], stbd: [0, 0, 0, 0, 0] };
@@ -578,7 +631,7 @@
     if (opts.proposal) series.push({ pts: pts(opts.proposal.corr), color: '#E07A2E', width: 2.5, dash: '7 4' });
     const segs = s.events.filter((e) => e.tank === t.id && e.type === 'refuel' && !e.group && isFinite(e.afterMm)).map((e) => { const b = Core.litres(t, e.mm); return [e.mm, b, e.afterMm, b + e.pumped]; });
     series.push({ color: '#13212F', segs });
-    series.push({ color: '#13212F', dots: s.anchors.filter((a) => a.tank === t.id).map((a) => [a.mm, a.L, 4.5]), dotFill: '#E9B44C', dotStroke: '#13212F' });
+    series.push({ color: '#13212F', dots: s.anchors.filter((a) => a.tank === t.id || a.tank === 'both').map((a) => [a.mm, a.L, a.tank === 'both' ? 3 : 4.5]), dotFill: '#E9B44C', dotStroke: '#13212F' });
     return lineChart(series, { label: 'Litres against ruler depth', xMin: 0, xMax: t.maxMm, yMin: 0, yMax, xTicks: [0.25, 0.5, 0.75, 1].map((q) => q * t.maxMm), yTicks: Array.from({ length: yMax / 100 + 1 }, (_, i) => i * 100), xFmt: (v) => rn(v), yFmt: (v) => fi(v), xUnit: RUL(), vlines: [{ x: t.pipeMm || 0, color: '#13212F' }] });
   }
   R.tanks = () => {
@@ -596,18 +649,27 @@
       </div>
       <div class="card" style="gap:6px">${tankBar(t)}</div>
       <div class="btnrow"><button class="btn dark grow" data-act="dip-sheet">Log dip</button><button class="btn primary" data-act="go" data-v="refuel">Log refuel</button></div>
+      ${kpNotice(t)}
       ${p ? `<div class="card dark"><div class="cardhead"><div><div class="h">Improved tank curve available</div><div class="sub">From ${p.n} readings · error ${f(p.rmsBefore)} → ${f(p.rmsAfter)} L</div></div><button class="btn small" style="background:#fff;color:#13212F" data-act="proposal">Review</button></div></div>` : ''}
       <div class="card" style="padding:12px 6px 10px 2px">
         <div class="cardhead" style="padding-left:10px"><div class="h">Tank curve</div><div class="sub">${eqs.length} readings used</div></div>
         ${curveChart(t)}
         <div class="sub" style="padding-left:30px">grey dashed = base curve (table fit or polynomial) · solid = current curve · black ticks = refuels (before → after) · vertical = suction pipe</div>
-        <div class="btnrow" style="padding:6px 10px 0 10px"><button class="btn small grow dark" data-act="go" data-v="tankfit">Volume fit</button><button class="btn small grow" data-act="add-anchor">Known point</button></div>
+        <div class="btnrow" style="padding:6px 10px 0 10px"><button class="btn small grow dark" data-act="go" data-v="tankfit">Volume fit</button><button class="btn small grow" data-act="kp-review">Known points</button></div>
       </div>
       ${s.curve.history.length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Earlier curves</div></div>${s.curve.history.map((h, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;gap:8px"><span class="sub">${dtstr(h.t)} · ${esc(h.note || '')}</span><button class="btn small" data-act="restore-curve" data-i="${i}">Restore</button></div>`).join('')}</div>` : ''}
-      ${s.anchors.filter((a) => a.tank === t.id).length ? `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Known points</div></div>${s.anchors.filter((a) => a.tank === t.id).map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px"><span>${rs(a.mm)} = ${f(a.L)} L</span><button class="iconbtn" aria-label="Delete point" data-act="del-anchor" data-id="${a.id}">${IC.x}</button></div>`).join('')}</div>` : ''}
+      ${knownPointsCard(t)}
       <div class="btnrow"><button class="btn small grow" data-act="go" data-v="log">Refuel and dip log</button></div>
       ${s.curve.sample ? '<div class="warn">The tank curve is a sample. Tap Volume fit to enter your readings or polynomial, and Edit tank for capacity and suction-pipe height.</div>' : ''}`;
   };
+  function pointSheet(x) {
+    sheet(`<h3>Known point</h3><p>A depth where you know the litres exactly, e.g. after filling an empty tank in measured steps.</p>
+      <div class="card"><div class="field"><label for="ac-mm">Depth</label><div class="inbox"><input id="ac-mm" inputmode="decimal" value="${x ? rn(x.mm) : ''}"><span>${RUL()}</span></div></div>
+      <div class="field"><label for="ac-L">Litres in tank</label><div class="inbox"><input id="ac-L" inputmode="decimal" value="${x ? dec(String(x.L)) : ''}"><span>L</span></div></div>
+      <div class="seg" style="margin:0">${S().tanks.map((t) => `<button class="${kpTank === t.id ? 'on' : ''}" data-act="kp-tank" data-t="${t.id}">${esc(t.name)}</button>`).join('')}<button class="${kpTank === 'both' ? 'on' : ''}" data-act="kp-tank" data-t="both">Both tanks</button></div></div>
+      <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button>${x ? '<button class="btn" data-act="kp-del">Delete</button>' : ''}<button class="btn primary" data-act="save-anchor">${x ? 'Save' : 'Add'}</button></div>`);
+    if (!x) setTimeout(() => { const i = $('#ac-mm'); if (i) i.focus(); }, 100);
+  }
   function proposalSheet() {
     const p = S().curve.pending; if (!p) return;
     sheet(`<h3>Improved tank curve</h3><p>Fitted to ${p.n} readings (${p.nRefuel} refuels). It stays close to your polynomial except where the refuels disagree.</p>
@@ -634,19 +696,15 @@
   const tfSet = () => tfState().sets[tfKey()];
   const tfTank = () => Core.tank(tfKey() === 'shared' ? 'port' : tfKey());
   function tfPoints(set, tk) {
-    const pts = set.rows.filter((r) => isFinite(r[0]) && isFinite(r[1])).map((r) => [r[0], r[1]]);
+    const pts = Core.anchorsFor(tfKey()).map((x) => [x.mm, x.L]);
     if (set.full && !pts.some((p) => Math.abs(p[0] - tk.maxMm) < 1)) pts.push([tk.maxMm, tk.capacity]);
     return pts;
   }
   const tfBounds = (set) => set.bounds.filter(isFinite).slice().sort((x, y) => x - y);
   R.tankfit = () => {
     const T = tfState(), set = tfSet(), tk = tfTank(), c = S().curve;
-    if (!set.rows.length) {   // start from the known points of that tank, plus empty rows
-      S().anchors.filter((x) => tfKey() === 'shared' || x.tank === tfKey()).forEach((x) => set.rows.push([x.mm, x.L]));
-      while (set.rows.length < 4) set.rows.push([NaN, NaN]);
-    }
     const nA = set.bounds.length + 1;
-    const tabs = `<div class="seg"><button class="${tfTab === 'table' ? 'on' : ''}" data-act="tf-tab" data-t="table">Readings table</button><button class="${tfTab === 'poly' ? 'on' : ''}" data-act="tf-tab" data-t="poly">Polynomial</button></div>`;
+    const tabs = `<div class="seg"><button class="${tfTab === 'table' ? 'on' : ''}" data-act="tf-tab" data-t="table">From known points</button><button class="${tfTab === 'poly' ? 'on' : ''}" data-act="tf-tab" data-t="poly">Polynomial</button></div>`;
     const now = c.model ? (c.model.shared ? 'table fit (both tanks)' : 'table fit (' + Core.ENG.filter((e) => c.model[e]).map((e) => Core.tank(e).name).join(', ') + ')') : (c.sample ? 'sample polynomial' : 'polynomial');
     let body;
     if (tfTab === 'poly') {
@@ -662,10 +720,9 @@
         <div class="seg" style="margin:0"><button class="${T.mode === 'shared' ? 'on' : ''}" data-act="tf-mode" data-m="shared">Both tanks (shared)</button><button class="${T.mode === 'separate' ? 'on' : ''}" data-act="tf-mode" data-m="separate">Each tank separately</button></div>
         ${T.mode === 'separate' ? `<div class="seg" style="margin:0">${S().tanks.map((t) => `<button class="${T.edit === t.id ? 'on' : ''}" data-act="tf-edit" data-t="${t.id}">${esc(t.name)}</button>`).join('')}</div>` : ''}
       </div>
-      <div class="card"><div class="cardhead"><div class="h">Readings</div><div class="sub">${RUL()} · L</div></div>
-        <div class="sub">Ruler depth and the litres in the tank at that depth, for example while filling an empty tank in measured steps.</div>
-        ${set.rows.map((r, i) => `<div class="field"><div class="inbox"><input inputmode="decimal" id="tf-d${i}" data-tf="${i}" value="${isFinite(r[0]) ? rn(r[0]) : ''}" aria-label="Depth row ${i + 1}"><span>${RUL()}</span></div><div class="inbox"><input inputmode="decimal" id="tf-l${i}" data-tf="${i}" value="${isFinite(r[1]) ? dec(String(+r[1].toFixed(1))) : ''}" aria-label="Litres row ${i + 1}"><span>L</span></div><button class="iconbtn" aria-label="Delete row" data-act="tf-del" data-i="${i}">${IC.x}</button></div>`).join('')}
-        <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="tf-add">Add row</button></div>
+      <div class="card"><div class="cardhead"><div class="h">Readings</div><div class="sub">${Core.anchorsFor(tfKey()).length} known points</div></div>
+        <div class="sub">${tfKey() === 'shared' ? 'All known points are used.' : 'The known points of this tank and the both-tank points are used.'} Add, correct or delete them on the Tanks page.</div>
+        <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="go" data-v="tanks">Edit known points</button></div>
         <div class="check"><input type="checkbox" id="tf-full" ${set.full ? 'checked' : ''}><label for="tf-full">Full tank: ${rs(tk.maxMm)} = ${fi(tk.capacity)} L<small style="display:block;color:#4F5B66">only if you have measured it</small></label></div>
       </div>
       <div class="card"><div class="cardhead"><div class="h">Depth areas</div></div>
@@ -724,7 +781,6 @@
   }
   function tfReadInputs() {
     const set = tfSet();
-    set.rows = set.rows.map((r, i) => { const d = $('#tf-d' + i), l = $('#tf-l' + i); return [d ? rv(d.value) : r[0], l ? Core.num(l.value) : r[1]]; });
     set.bounds = set.bounds.map((b, k) => { const el = $('#tf-b' + k); return el ? rv(el.value) : b; });
   }
 
@@ -998,7 +1054,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 4.8 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 4.9 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -1178,8 +1234,6 @@
     'tf-tab': (el) => { tfTab = el.dataset.t; R.tankfit(); },
     'tf-mode': (el) => { tfReadInputs(); tfState().mode = el.dataset.m; Core.save(); R.tankfit(); },
     'tf-edit': (el) => { tfReadInputs(); tfState().edit = el.dataset.t; Core.save(); R.tankfit(); },
-    'tf-add': () => { tfReadInputs(); tfSet().rows.push([NaN, NaN]); Core.save(); R.tankfit(); setTimeout(() => { const i = $('#tf-d' + (tfSet().rows.length - 1)); if (i) i.focus(); }, 50); },
-    'tf-del': (el) => { tfReadInputs(); tfSet().rows.splice(+el.dataset.i, 1); Core.save(); R.tankfit(); },
     'tf-areas': (el) => {
       tfReadInputs(); const set = tfSet(), n = +el.dataset.n;
       set.bounds = set.bounds.slice(0, n - 1); while (set.bounds.length < n - 1) set.bounds.push(NaN);
@@ -1212,14 +1266,28 @@
       Core.setBase(co, sheetUnit); closeSheet();
       toast('Saved. Full-tank depth gives ' + fi(full) + ' L (capacity ' + fi(t.capacity) + ' L)', 4500); go('tanks');
     },
-    'add-anchor': () => sheet(`<h3>Known point</h3><p>A depth where you know the litres exactly, e.g. after filling an empty tank in measured steps.</p>
-        <div class="card"><div class="field"><label for="ac-mm">Depth</label><div class="inbox"><input id="ac-mm" inputmode="decimal"><span>${RUL()}</span></div></div>
-        <div class="field"><label for="ac-L">Litres in tank</label><div class="inbox"><input id="ac-L" inputmode="decimal"><span>L</span></div></div></div>
-        <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="save-anchor">Add</button></div>`),
+    'add-anchor': () => { kpEdit = null; kpTank = tankSel; pointSheet(); },
+    'kp-edit': (el) => { const x = S().anchors.find((q) => q.id === el.dataset.id); if (!x) return; kpEdit = x.id; kpTank = x.tank; pointSheet(x); },
+    'kp-tank': (el) => { kpTank = el.dataset.t; segOn(el); },
     'save-anchor': () => {
       const mm = rv($('#ac-mm').value), Lv = Core.num($('#ac-L').value);
       if (!isFinite(mm) || !isFinite(Lv)) return toast('Enter both values');
-      const p = Core.addAnchor(tankSel, mm, Lv); closeSheet(); R.tanks(); if (p) proposalSheet();
+      const p = kpEdit ? Core.updateAnchor(kpEdit, kpTank, mm, Lv) : Core.addAnchor(kpTank, mm, Lv);
+      closeSheet(); (R[current] || R.tanks)(); if (p && kpTank !== 'both') proposalSheet();
+    },
+    'kp-del': () => confirmSheet('Delete this point?', 'Suggested fits are recalculated without it. The curve in use does not change until you use a new fit.', 'Delete', () => { Core.deleteAnchor(kpEdit); (R[current] || R.tanks)(); }),
+    'kp-more': () => { kpOpen = !kpOpen; R.tanks(); setTimeout(() => { const c = $('#kp-card'); if (c) c.scrollIntoView({ block: 'start' }); }, 30); },
+    'kp-review': () => { if (current !== 'tanks') go('tanks'); setTimeout(() => { const c = $('#kp-card'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 60); },
+    'kp-dismiss': (el) => { S().curve.kpDismissed = el.dataset.k + '#' + Core.pointsKey(el.dataset.k); Core.save(); R.tanks(); },
+    'kp-use': (el) => {
+      const key = el.dataset.k, t = Core.tank(tankSel), sg = fitSuggestions(key, t)[+el.dataset.i]; if (!sg) return;
+      confirmSheet('Use this tank curve?', 'Tank levels, consumption curves and range are recalculated with it. The current curve stays under Earlier curves.', 'Use', () => {
+        const cur = S().curve.model;
+        const model = key === 'shared' ? { shared: sg.model } : Object.assign({}, cur && !cur.shared ? cur : {}, { [key]: sg.model });
+        const T = tfState(); T.mode = key === 'shared' ? 'shared' : 'separate'; if (key !== 'shared') T.edit = key;
+        Object.assign(T.sets[key], { bounds: sg.bounds.slice(), methods: sg.methods.slice() });
+        Core.setTableModel(model); toast('New tank curve in use'); R.tanks();
+      });
     },
     'del-anchor': (el) => { Core.deleteAnchor(el.dataset.id); R.tanks(); },
     'proposal': proposalSheet,

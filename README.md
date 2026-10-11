@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 4.8)
+# Popcorn Fuel Log (PWA, version 4.9)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -133,3 +133,11 @@ Tankit → Tilavuussovite:
 - Tilavuussovitteeseen on ladattu valmiiksi veneen täyttötaulukko (33 lukemaa, 0–67,5 cm, molemmat tankit yhdessä).
 - Jos käytössä oli esimerkkipolynomi, taulukon sovite (polynomi 2) otetaan käyttöön automaattisesti; oma polynomi säilyy ennallaan.
 - Tankkien oletussyvyys 70 cm.
+
+## Versio 4.9 – Tunnetut pisteet ja ehdotetut sovitteet
+
+- Tunnetut pisteet on ainoa paikka syvyys–litra-lukemille. Pisteelle valitaan Port, Stbd tai Molemmat tankit.
+- Popcornin täyttötaulukko (33 lukemaa) on valmiina Molemmat tankit -pisteinä.
+- Tankit-sivun Tunnetut pisteet -kortissa: pisteiden muokkaus (napauta), ehdotetut sovitteet virheineen ja kuvaaja, Ota käyttöön -painike.
+- Kun tankille lisätään omia pisteitä, ehdotukset lasketaan sen omista ja yhteisistä pisteistä.
+- Tilavuussovite-näkymä käyttää samoja pisteitä (aluejako ja sovitustavat).
