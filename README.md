@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 5.0)
+# Popcorn Fuel Log (PWA, version 5.1)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -156,3 +156,10 @@ Tankit → Tilavuussovite:
 - Tankit: merkityksetön käyräehdotus (virhe ei pienene) piilotetaan; Aiemmat käyrät kootaan sivun loppuun avattavaksi; ehdotusten kuvaaja avataan painikkeella.
 - Kantama: vastaus ja kartta ensin, asetukset (Koneet, Nopeus, Matka, Alue, Lähtö) kartan alla yhdessä kortissa.
 - Kaikissa numerokentissä desimaalipilkku suomeksi; puuttuvat käännökset lisätty; "Lisää matka käsin" samalla nimellä kaikkialla.
+
+## Versio 5.1 – kulutuksen arviopisteet
+
+- Käyrät → Kulutus: Arviopisteet-kortti (nopeus kn → L/NM) sarjoille Molemmat koneet, Port yksin ja Stbd yksin (sarja valitaan kuvaajan yläpuolelta).
+- Ehdotetut sovitteet: potenssikäyrä (joutokäynti + b·vⁿ), pehmeä käyrä, polynomi 2, suorat viivat. Valittu sovite on pohjakäyrä; ilman pisteitä pohjana on oletuskaava.
+- Mittaukset korjaavat pohjaa (varmuus ±25 %), mutta uusi käyrä otetaan käyttöön vasta, kun hyväksyt ehdotuksen ("Parannettu kulutuskäyrä saatavilla"). Tuuli- ja kuormakertoimet ovat mukana ehdotuksessa.
+- Aiemmat kulutuskäyrät voi palauttaa.

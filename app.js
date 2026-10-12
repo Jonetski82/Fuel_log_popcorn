@@ -416,7 +416,81 @@
   const niceMax = (v) => { const p = Math.pow(10, Math.floor(Math.log10(v || 1))); const m = v / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p; };
 
   // CURVE (consumption + hull)
-  let curveTab = 'fuel', curveMetric = 'nm', curveMode = 'both', hullPeriod;
+  let curveTab = 'fuel', curveMetric = 'nm', curveMode = 'both', hullPeriod, cpChart = false, consHistOpen = false, cpEdit = null;
+  const CF_LABEL = { power: 'Power curve', spline: 'Smooth curve', poly2: 'Polynomial 2', linear: 'Straight lines' };
+  const SERIES_LABEL = { both: 'Both engines (whole boat)', port: 'Port solo', stbd: 'Stbd solo' };
+  const baseLabel = (series) => { const md = S().cons.base[series]; return md ? CF_LABEL[md.m] : (series === 'both' ? 'default formula' : 'both-engine base × 1.1'); };
+  // estimate points (speed, L/NM) of the series shown, their suggested fits and the base in use
+  function consPointsCard(series) {
+    const C = S().cons, list = C.pts[series];
+    const rows = list.map((q) => `<button class="item" data-act="cp-edit" data-id="${q.id}" style="padding:8px 12px;min-height:0"><span class="main"><b>${f(q.kn)} kn = ${f(q.lpnm, 2)} L/NM</b></span><span class="right"><span class="sub">${f(q.lpnm * q.kn)} L/h</span></span></button>`).join('');
+    const sg = Core.consSuggestions(series);
+    let sug = '';
+    if (sg.list.length) {
+      const best = sg.list[0], top = 17, val = (lph, kn) => (curveMetric === 'nm' ? lph / kn : lph);
+      const sp = []; for (let k = 2; k <= top; k += 0.5) sp.push(k);
+      const yMax = niceMax(Math.max(...sp.slice(0, 26).map((k) => Math.max(val(Core.baseLph(series, k), k), val(Core.cfEval(best.model, k), k)))) * 1.05);
+      const chart = lineChart([
+        { pts: sp.map((k) => [k, val(Core.baseLph(series, k), k)]), color: '#9AA5AE', width: 2 },
+        { pts: sp.map((k) => [k, val(Math.max(series === 'both' ? 2 : 1.2, Core.cfEval(best.model, k)), k)]), color: '#E07A2E', width: 2.5 },
+        { color: '#13212F', dots: list.map((q) => [q.kn, curveMetric === 'nm' ? q.lpnm : q.lpnm * q.kn, 4]), dotFill: '#E9B44C', dotStroke: '#13212F' }],
+        { label: 'Suggested fit', xMin: 2, xMax: top, yMin: 0, yMax, xTicks: [2, 4, 6, 8, 10, 12, 14, 16], yTicks: [0, 0.25, 0.5, 0.75, 1].map((q) => q * yMax), xFmt: (v) => v, yFmt: (v) => (yMax <= 10 ? f(v) : fi(v)), xUnit: 'kn' });
+      sug = `<div class="cardhead" style="padding-top:10px"><div class="h">Suggested fits</div><div class="sub">${sg.loo ? 'error when a point is left out' : 'error at your points'}</div></div>
+        ${sg.loo ? '' : '<div class="sub">With 2–3 points the fits cannot be compared reliably yet; the first is the most natural shape for fuel use. Add points to compare them by error.</div>'}
+        ${sg.list.map((x, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #ECE8DC"><div><b>${CF_LABEL[x.m]}${i === 0 ? ' ★' : ''}</b><div class="sub">${x.m === 'power' ? 'exponent ' + f(x.model.n, 2) + ' · ' : ''}±${f(x.rms, 2)} L/NM</div></div><button class="btn small ${i === 0 ? 'primary' : ''}" data-act="cp-use" data-i="${i}">Use</button></div>`).join('')}
+        ${cpChart ? `<div style="padding:6px 0 0 0">${chart}</div><div class="sub" style="padding-left:30px"><b style="color:#E07A2E">orange = best suggestion</b> · grey = base in use · dots = your points</div>` : ''}
+        <div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="cp-chart">${cpChart ? 'Hide chart' : 'Show chart'}</button></div>`;
+    } else if (list.length < 2) sug = '<div class="sub" style="padding-top:8px">Add at least two points to get suggested fits.</div>';
+    return `<div class="card" id="cp-card" style="gap:0"><div class="cardhead"><div class="h">Estimate points</div><div class="sub">${SERIES_LABEL[series]}</div></div>
+      <div class="sub" style="padding-bottom:4px">Your estimate of fuel use at a few speeds. The fit you choose is the base curve; measured trips correct it. Tap a point to correct or delete it.</div>
+      ${rows || '<div class="sub">No estimate points yet.</div>'}
+      <div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow dark" data-act="cp-add">Add point</button></div>
+      <div class="cardhead" style="padding-top:10px;align-items:center"><div class="sub">Base: <b style="color:#13212F">${baseLabel(series)}</b></div>${C.base[series] ? '<button class="btn small" data-act="cp-default">Use default formula</button>' : ''}</div>
+      ${sug}</div>`;
+  }
+  function consHistoryCard() {
+    const h = S().cons.history; if (!h.length) return '';
+    return `<div class="card" style="gap:0"><button class="cardhead fold" data-act="cons-hist"><span class="h">Earlier consumption curves</span><span class="sub">${consHistOpen ? 'Hide' : 'Show ' + h.length}</span></button>${consHistOpen ? h.map((x, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ECE8DC;gap:8px"><span class="sub">${dtstr(x.t)} · ${esc(x.note || '')}</span><button class="btn small" data-act="cons-restore" data-i="${i}">Restore</button></div>`).join('') : ''}</div>`;
+  }
+  function consProposalCard() {
+    const p = S().cons.pending; if (!p) return '';
+    return `<div class="card dark"><div class="cardhead"><div><div class="h">Improved consumption curve available</div><div class="sub">From ${p.n} measured tank intervals · error ${f(p.errBefore)} → ${f(p.errAfter)} L</div></div><button class="btn small" style="background:#fff;color:#13212F" data-act="cons-review">Review</button></div></div>`;
+  }
+  function consProposalSheet() {
+    const C = S().cons, p = C.pending; if (!p) return;
+    const a = C.active, H = S().fit.loggedH;
+    const kns = [6.5, 8.5, 10.5];
+    const row = (label, fn) => `<div class="tr" style="grid-template-columns:1.4fr repeat(3,1fr)"><div>${label}</div>${kns.map((k) => { const u = fn(a.x, k) / k, v = fn(p.x, k) / k; return `<div>${f(u, 2)} → <b>${f(v, 2)}</b></div>`; }).join('')}</div>`;
+    const tot = (x, k) => Core.lphX(x, 'port', 'both', k) + Core.lphX(x, 'stbd', 'both', k);
+    const solo = (e) => (x, k) => Core.lphX(x, e, e, k);
+    const anySolo = (e) => H[e].some((h) => h >= 0.25);
+    const pc = (v) => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(0) + ' %';
+    const cRow = (label, u, v) => `<div class="tr" style="grid-template-columns:2fr 1fr 1fr"><div>${label}</div><div>${pc(u)}</div><div><b>${pc(v)}</b></div></div>`;
+    const sp = []; for (let k = 2; k <= 17; k += 0.5) sp.push(k);
+    const yMax = niceMax(Math.max(...sp.slice(0, 26).map((k) => Math.max(tot(a.x, k), tot(p.x, k)) / k)) * 1.05);
+    const chart = lineChart([
+      { pts: sp.map((k) => [k, Core.baseLph('both', k) / k]), color: '#9AA5AE', width: 1.5, dash: '5 4' },
+      { pts: sp.map((k) => [k, tot(a.x, k) / k]), color: '#13212F' },
+      { pts: sp.map((k) => [k, tot(p.x, k) / k]), color: '#E07A2E', width: 2.5, dash: '7 4' }],
+      { label: 'Current and proposed consumption curve', xMin: 2, xMax: 17, yMin: 0, yMax, xTicks: [2, 4, 6, 8, 10, 12, 14, 16], yTicks: [0, 0.25, 0.5, 0.75, 1].map((q) => q * yMax), xFmt: (v) => v, yFmt: (v) => f(v), xUnit: 'kn' });
+    sheet(`<h3>Improved consumption curve</h3><p>Fitted to ${p.n} measured tank intervals. Nothing changes until you accept it.</p>
+      <div class="card" style="gap:6px"><div class="cardhead"><div class="sub">Error vs measured intervals</div><div class="num" style="font-size:20px">${f(p.errBefore)} → ${f(p.errAfter)} L</div></div>
+        <div class="table"><div class="tr head" style="grid-template-columns:1.4fr repeat(3,1fr)"><div>L/NM</div>${kns.map((k) => `<div>${f(k)} kn</div>`).join('')}</div>
+        ${row('Both engines', tot)}${anySolo('port') ? row('Port solo', solo('port')) : ''}${anySolo('stbd') ? row('Stbd solo', solo('stbd')) : ''}</div>
+        <div class="table" style="padding-top:6px"><div class="tr head" style="grid-template-columns:2fr 1fr 1fr"><div>Conditions effect</div><div>Now</div><div>New</div></div>
+        ${cRow('Head wind 5 m/s', a.cond.a * 5, p.cond.a * 5)}${cRow('Light load', a.cond.bL, p.cond.bL)}${cRow('Full load', a.cond.bF, p.cond.bF)}</div>
+      </div>
+      <div class="card" style="padding:8px 4px 4px 0"><div class="sub" style="padding-left:12px">Both engines, L/NM: solid = current · orange dashed = proposed · grey dashed = base</div>${chart}</div>
+      <div class="btnrow"><button class="btn grow" data-act="cons-reject">Keep current</button><button class="btn primary" data-act="cons-accept">Use new curve</button></div>`);
+  }
+  function consPointSheet(q) {
+    const series = q ? Core.findConsPoint(q.id).series : curveMode;
+    sheet(`<h3>Estimate point</h3><p>Your estimate of fuel use at one speed.</p><div class="sub" style="padding:0 2px 6px 2px">${SERIES_LABEL[series]}</div>
+      <div class="card"><div class="field"><label for="cp-kn">Speed</label><div class="inbox"><input id="cp-kn" inputmode="decimal" value="${q ? dv(q.kn) : ''}"><span>kn</span></div></div>
+      <div class="field"><label for="cp-l">Fuel use</label><div class="inbox"><input id="cp-l" inputmode="decimal" value="${q ? dv(q.lpnm) : ''}"><span>L/NM</span></div></div></div>
+      <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button>${q ? '<button class="btn" data-act="cp-del">Delete</button>' : ''}<button class="btn primary" data-act="cp-save">${q ? 'Save' : 'Add'}</button></div>`);
+    if (!q) setTimeout(() => { const i = $('#cp-kn'); if (i) i.focus(); }, 100);
+  }
   R.curve = () => {
     $('#v-curve').innerHTML = `
       <div class="top"><div><div class="title">${curveTab === 'fuel' ? 'Consumption curve' : 'Hull condition'}</div><div class="sub" id="curve-sub"></div></div></div>
@@ -433,6 +507,9 @@
     const hrs = fit.loggedH[mode];
     const series = [{ pts: sp.map((kn) => [kn, val(Core.lphTotal(mode, kn), kn)]), color: '#13212F', band,
       dots: sp.map((kn) => { const b = Core.bandOf(kn); return hrs[b] > 0.02 ? [kn, val(Core.lphTotal(mode, kn), kn), 3 + Math.sqrt(hrs[b]) * 1.5] : null; }).filter(Boolean) }];
+    series.unshift({ pts: sp.map((kn) => [kn, val(Core.baseLph(mode, kn), kn)]), color: '#9AA5AE', width: 1.5, dash: '5 4' });
+    const cpts = S().cons.pts[mode];
+    if (cpts.length) series.push({ color: '#13212F', dots: cpts.filter((q) => q.kn >= 2 && q.kn <= 17).map((q) => [q.kn, nm ? q.lpnm : q.lpnm * q.kn, 4.5]), dotFill: '#E9B44C', dotStroke: '#13212F' });
     if (mode === 'both') {
       series.push({ pts: sp.map((kn) => [kn, val(Core.lphEng('port', 'both', kn), kn)]), color: '#A63A2A', width: 2 });
       series.push({ pts: sp.map((kn) => [kn, val(Core.lphEng('stbd', 'both', kn), kn)]), color: '#1F6E5A', width: 2 });
@@ -446,10 +523,12 @@
     $('#curve-body').innerHTML = `
       <div class="chips" style="padding-top:10px">${Core.MODES.map((m) => `<button class="chip ${m === mode ? 'on' : ''}" data-act="curve-mode" data-m="${m}">${m === 'both' ? 'Both engines' : MODE_LABEL[m].replace(' only', ' solo')}</button>`).join('')}</div>
       <div class="seg" style="margin-top:10px"><button class="${nm ? 'on' : ''}" data-act="metric" data-m="nm">Litres per NM</button><button class="${nm ? '' : 'on'}" data-act="metric" data-m="h">Litres per hour</button></div>
+      ${consProposalCard()}
       ${fit.nIntervals === 0 ? '<div class="warn">This is a starting guess, not your boat yet. It becomes your curve after a few trips with tank dips before and after.</div>' : ''}
       <div class="card" style="padding:12px 6px 8px 2px">${chart}
-        <div class="sub" style="padding-left:30px">${mode === 'both' ? '<b style="color:#13212F">Total</b> · <b style="color:#A63A2A">port</b> · <b style="color:#1F6E5A">stbd</b> · ' : ''}shaded = uncertainty · dot size = hours · grey line = cruising from ${f(S().settings.minCruiseKn)} kn</div>
+        <div class="sub" style="padding-left:30px">${mode === 'both' ? '<b style="color:#13212F">Total</b> · <b style="color:#A63A2A">port</b> · <b style="color:#1F6E5A">stbd</b> · ' : ''}grey dashed = base curve · shaded = uncertainty · dot size = hours${cpts.length ? ' · yellow = your estimate points' : ''} · grey line = cruising from ${f(S().settings.minCruiseKn)} kn</div>
       </div>
+      ${consPointsCard(mode)}
       ${mode === 'both' ? ecoHtml(false) : ''}
       ${mode === 'both' ? condHtml() + accuracyHtml() : ''}
       <div class="card" style="gap:0"><div class="table">
@@ -461,6 +540,7 @@
           return `<div class="tr ${hrs[b] < 0.1 ? 'dim' : ''}" style="${cols}"><div>${Core.bandLabel(b)}</div><div><b>${f((p + s) / v)}</b></div><div>${mode === 'stbd' ? '–' : f(p)}</div><div>${mode === 'port' ? '–' : f(s)}</div><div>${mode === 'both' ? fi((s / p) * 100) + '%' : '–'}</div><div>${f(hrs[b])}</div></div>`;
         }).join('')}
       </div></div>
+      ${consHistoryCard()}
       <div class="note">Each tank feeds its own engine, so every pair of dips measures one engine. Both engines are fitted together; where one has little data it borrows the other's shape. Grey rows have little data. Rough dips count less.</div>`;
   }
   function condHtml() {
@@ -1097,7 +1177,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 5.0 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 5.1 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -1217,6 +1297,26 @@
     'open-trip': (el) => go('trip', { id: el.dataset.id }),
     'rename-trip': (el) => { const tr = S().trips.find((t) => t.id === el.dataset.id); tr.name = $('#trip-name').value.trim() || tr.name; Core.save(); toast('Saved'); R.trip(); },
     'del-trip': (el) => confirmSheet('Delete this trip?', 'Its track, speed and RPM log are removed. This cannot be undone.', 'Delete', async () => { await Core.deleteTrip(el.dataset.id); go('trips'); }),
+    'cp-add': () => { cpEdit = null; consPointSheet(null); },
+    'cp-edit': (el) => { const fq = Core.findConsPoint(el.dataset.id); if (!fq) return; cpEdit = fq.q.id; consPointSheet(fq.q); },
+    'cp-save': () => {
+      const kn = Core.num($('#cp-kn').value), l = Core.num($('#cp-l').value);
+      if (!(kn >= 1 && kn <= 25)) return toast('Enter a speed between 1 and 25 kn');
+      if (!(l > 0 && l < 30)) return toast('Enter the fuel use in L/NM');
+      const series = cpEdit ? Core.findConsPoint(cpEdit).series : curveMode;
+      if (S().cons.pts[series].some((q) => q.id !== cpEdit && Math.abs(q.kn - kn) < 0.05)) return toast('There is already a point at this speed');
+      if (cpEdit) Core.updateConsPoint(cpEdit, kn, l); else Core.addConsPoint(series, kn, l);
+      closeSheet(); R.curve();
+    },
+    'cp-del': () => confirmSheet('Delete this point?', 'Suggested fits are recalculated without it. The curve in use does not change until you use a new fit.', 'Delete', () => { Core.deleteConsPoint(cpEdit); R.curve(); }),
+    'cp-use': (el) => { const x = Core.consSuggestions(curveMode).list[+el.dataset.i]; if (!x) return; Core.setConsBase(curveMode, x.model); toast('Base curve updated'); R.curve(); },
+    'cp-default': () => confirmSheet('Use the default formula?', 'The base curve goes back to the default formula. Your points stay in the list.', 'Use default', () => { Core.setConsBase(curveMode, null); R.curve(); }),
+    'cp-chart': () => { cpChart = !cpChart; R.curve(); },
+    'cons-review': () => consProposalSheet(),
+    'cons-accept': () => { if (Core.acceptCons()) toast('New consumption curve in use'); closeSheet(); R.curve(); },
+    'cons-reject': () => { Core.rejectCons(); closeSheet(); toast('Kept the current curve'); R.curve(); },
+    'cons-hist': () => { consHistOpen = !consHistOpen; R.curve(); },
+    'cons-restore': (el) => confirmSheet('Restore this curve?', 'The current curve is kept in the list so you can switch back.', 'Restore', () => { Core.restoreCons(+el.dataset.i); R.curve(); }),
     'curve-tab': (el) => { curveTab = el.dataset.t; R.curve(); },
     'curve-mode': (el) => { curveMode = el.dataset.m; R.curve(); },
     'metric': (el) => { curveMetric = el.dataset.m; R.curve(); },
@@ -1485,5 +1585,5 @@
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded && !(S() && S().active)) { reloaded = true; location.reload(); } });
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => reg.update()).catch(() => {}));
   }
-  window.FuelLogDebug = { go, Core, Sea, Wind, proposalSheet, maps };
+  window.FuelLogDebug = { go, Core, Sea, Wind, proposalSheet, consProposalSheet, maps };
 })();

@@ -87,9 +87,12 @@ const Core = (() => {
       trips: [],
       active: null,
       hull: { clean: [[1000, 5.0], [1200, 6.0], [1400, 7.0], [1600, 7.8], [1800, 8.5], [2000, 9.5]], cleanSample: true, cleanings: [] },
-      fit: null
+      fit: null,
+      cons: defaultCons()
     };
   }
+  // consumption: your estimate points (kn, L/NM) per series, the base curve fitted to them, the curve in use and the proposal
+  const defaultCons = () => ({ pts: { both: [], port: [], stbd: [] }, base: { both: null, port: null, stbd: null }, active: null, pending: null, rejected: null, history: [] });
   function migrate(s) {
     const d = defaultState();
     if (!s) return d;
@@ -108,6 +111,7 @@ const Core = (() => {
     s.settings = Object.assign(d.settings, s.settings || {});
     ['curve', 'hull'].forEach((k) => { if (!s[k]) s[k] = d[k]; });
     if (!('model' in s.curve)) s.curve.model = null;
+    if (!s.cons) s.cons = defaultCons();
     s.anchors = s.anchors || []; s.events = s.events || []; s.trips = s.trips || []; s.accuracy = s.accuracy || [];
     s.userStations = s.userStations || []; s.stationPrices = s.stationPrices || {};
     return s;
@@ -342,8 +346,94 @@ const Core = (() => {
   // =====================================================================
   // CONSUMPTION: per engine, both-engine mode and solo mode, L/h per speed band
   // =====================================================================
-  const priorTot = (b) => (b === 0 ? 2 : 2 + 0.35 * Math.pow(bandMid(b), 2));
-  const priorOf = (m, b) => (m === 'both' ? priorTot(b) / 2 : b === 0 ? 1.2 : priorTot(b) * 1.1);
+  // ---------- base curve: your estimate points or the default formula ----------
+  const CF_METHODS = ['power', 'spline', 'poly2', 'linear'];
+  const CF_MIN = { power: 2, spline: 2, poly2: 3, linear: 2 };
+  const CF_FLOOR = { both: 2, solo: 1.2 };   // idle use, L/h: the base never goes below it
+  function lsq(rows, y) {
+    const n = rows[0].length, H = Array.from({ length: n }, () => new Array(n).fill(0)), g = new Array(n).fill(0);
+    rows.forEach((r, k) => { for (let i = 0; i < n; i++) { g[i] += r[i] * y[k]; for (let j = 0; j < n; j++) H[i][j] += r[i] * r[j]; } });
+    return solve(H, g).x;
+  }
+  function pchipD(xs, ys) {
+    const n = xs.length, h = [], dl = [], d = new Array(n).fill(0);
+    for (let i = 0; i < n - 1; i++) { h[i] = xs[i + 1] - xs[i]; dl[i] = (ys[i + 1] - ys[i]) / h[i]; }
+    if (n === 2) return [dl[0], dl[0]];
+    for (let i = 1; i < n - 1; i++) {
+      if (dl[i - 1] * dl[i] <= 0) d[i] = 0;
+      else { const w1 = 2 * h[i] + h[i - 1], w2 = h[i] + 2 * h[i - 1]; d[i] = (w1 + w2) / (w1 / dl[i - 1] + w2 / dl[i]); }
+    }
+    const end = (h0, h1, d0, d1) => { let v = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1); if (Math.sign(v) !== Math.sign(d0)) v = 0; else if (Math.sign(d0) !== Math.sign(d1) && Math.abs(v) > Math.abs(3 * d0)) v = 3 * d0; return v; };
+    d[0] = end(h[0], h[1], dl[0], dl[1]); d[n - 1] = end(h[n - 2], h[n - 3], dl[n - 2], dl[n - 3]);
+    return d;
+  }
+  // fit one method to points [[kn, L/h]]; returns a model or null
+  function cfFit(m, pts, floor) {
+    const p = pts.slice().sort((a, b) => a[0] - b[0]), xs = p.map((q) => q[0]), ys = p.map((q) => q[1]);
+    if (p.length < CF_MIN[m] || new Set(xs).size < p.length) return null;
+    if (m === 'linear') return { m, xs, ys };
+    if (m === 'spline') return { m, xs, ys, d: pchipD(xs, ys) };
+    if (m === 'poly2') { const c = lsq(xs.map((v) => [1, v, v * v]), ys); return c.every(isFinite) ? { m, c } : null; }
+    let best = null;   // power: L/h = idle + b·v^n — at zero speed the engines burn their idle use; b and n fitted
+    const a = floor || 0;
+    for (let n = 1; n <= 4.0001; n += 0.01) {
+      const X = xs.map((v) => Math.pow(v, n));
+      const b = X.reduce((t, x, i) => t + x * (ys[i] - a), 0) / X.reduce((t, x) => t + x * x, 0);
+      if (!(b > 0)) continue;
+      const sse = X.reduce((t, x, i) => t + (a + b * x - ys[i]) ** 2, 0);
+      if (!best || sse < best.sse) best = { m, a, b, n: +n.toFixed(2), sse };
+    }
+    return best;
+  }
+  function cfEval(md, v) {
+    if (md.m === 'power') return md.a + md.b * Math.pow(v, md.n);
+    if (md.m === 'poly2') return md.c[0] + md.c[1] * v + md.c[2] * v * v;
+    const xs = md.xs, ys = md.ys, n = xs.length;
+    const sl = (i) => (md.m === 'spline' ? md.d[i] : i === 0 ? (ys[1] - ys[0]) / (xs[1] - xs[0]) : (ys[n - 1] - ys[n - 2]) / (xs[n - 1] - xs[n - 2]));
+    if (v <= xs[0]) return ys[0] + sl(0) * (v - xs[0]);
+    if (v >= xs[n - 1]) return ys[n - 1] + sl(n - 1) * (v - xs[n - 1]);
+    let i = 0; while (v > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], t = (v - xs[i]) / h;
+    if (md.m === 'linear') return ys[i] + t * (ys[i + 1] - ys[i]);
+    const t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h * md.d[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * md.d[i + 1];
+  }
+  function cfMonotonic(md, floor) {
+    let prev = -Infinity;
+    for (let v = 1; v <= MAX_KN + 1.5; v += 0.25) { const y = Math.max(floor, cfEval(md, v)); if (!isFinite(y) || y < prev - 1e-6) return false; prev = y; }
+    return true;
+  }
+  const cfSeries = (series) => (S.cons.pts[series] || []).map((q) => [q.kn, q.lpnm * q.kn]);
+  // suggested fits for one series: error in L/NM when each point is left out (4+ points); with 2–3 points all fits pass through them
+  function consSuggestions(series) {
+    const pts = cfSeries(series), floor = series === 'both' ? CF_FLOOR.both : CF_FLOOR.solo;
+    if (pts.length < 2) return { list: [], loo: false };
+    const loo = pts.length >= 4, out = [];
+    CF_METHODS.forEach((m) => {
+      const md = cfFit(m, pts, floor); if (!md || !cfMonotonic(md, floor)) return;
+      let r = [];
+      if (loo) pts.forEach((q, i) => { const o = cfFit(m, pts.filter((_, j) => j !== i), floor); if (o) r.push((Math.max(floor, cfEval(o, q[0])) - q[1]) / q[0]); });
+      else r = pts.map((q) => (Math.max(floor, cfEval(md, q[0])) - q[1]) / q[0]);
+      if (!r.length) return;
+      out.push({ m, model: md, rms: Math.sqrt(r.reduce((t, x) => t + x * x, 0) / r.length) });
+    });
+    const pref = (m) => CF_METHODS.indexOf(m);
+    out.sort((a, b) => (loo && Math.abs(a.rms - b.rms) > 0.005 ? a.rms - b.rms : pref(a.m) - pref(b.m)));
+    return { list: out, loo };
+  }
+  // base L/h at a speed: 'both' = whole boat with both engines, 'port' / 'stbd' = that engine alone
+  function baseLph(series, kn) {
+    const md = S.cons && S.cons.base[series];
+    if (series === 'both') return md ? Math.max(CF_FLOOR.both, cfEval(md, kn)) : 2 + 0.35 * kn * kn;
+    return md ? Math.max(CF_FLOOR.solo, cfEval(md, kn)) : baseLph('both', kn) * 1.1;
+  }
+  // per-engine prior of one band and its uncertainty: ±25 % on your own base curve, wide on the default formula
+  function priorBand(e, m, b) {
+    if (b === 0) return { p: m === 'both' ? 1 : 1.2, sd: m === 'both' ? 2.6 : 2.7 };
+    const kn = bandMid(b), own = m === 'both' ? !!S.cons.base.both : !!(S.cons.base[e] || S.cons.base.both);
+    const p = m === 'both' ? baseLph('both', kn) / 2 : baseLph(e, kn);
+    return { p, sd: own ? 0.25 * p + 0.5 : 0.6 * p + 2 };
+  }
   const IDX = (e, m, b) => ((ENG.indexOf(e) * 2) + (m === 'both' ? 0 : 1)) * NB + b;
   const NX = 4 * NB;
   const tripBands = (tr) => tr.bandsBy || { both: tr.bands || zeros(), port: zeros(), stbd: zeros() };
@@ -385,21 +475,24 @@ const Core = (() => {
       const nz = []; for (let i = 0; i < NX; i++) if (a[i]) nz.push(i);
       nz.forEach((i) => { g[i] += w * a[i] * iv.used; nz.forEach((j) => { H[i][j] += w * a[i] * a[j]; }); });
     });
+    const P = {}; ENG.forEach((e) => ['both', 'solo'].forEach((m) => { for (let b = 0; b < NB; b++) P[IDX(e, m, b)] = priorBand(e, m, b); }));
     ENG.forEach((e) => ['both', 'solo'].forEach((m) => {
-      for (let b = 0; b < NB; b++) { // weak prior
-        const p = priorOf(m, b), sp = 0.6 * p + 2, i = IDX(e, m, b);
-        H[i][i] += 1 / (sp * sp); g[i] += p / (sp * sp);
+      for (let b = 0; b < NB; b++) { // prior: the base curve
+        const i = IDX(e, m, b), { p, sd } = P[i];
+        H[i][i] += 1 / (sd * sd); g[i] += p / (sd * sd);
       }
-      const ls = 1 / Math.pow(m === 'both' ? 3 : 4, 2); // smoothness over moving bands
+      const ls = 1 / Math.pow(m === 'both' ? 3 : 4, 2); // smooth correction over moving bands: the base keeps its shape
       for (let b = 2; b < NB - 1; b++) {
         const idx = [IDX(e, m, b - 1), IDX(e, m, b), IDX(e, m, b + 1)], cf = [1, -2, 1];
-        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) H[idx[i]][idx[j]] += ls * cf[i] * cf[j];
+        const dp = cf.reduce((t, c, k) => t + c * P[idx[k]].p, 0);
+        for (let i = 0; i < 3; i++) { g[idx[i]] += ls * cf[i] * dp; for (let j = 0; j < 3; j++) H[idx[i]][idx[j]] += ls * cf[i] * cf[j]; }
       }
     }));
-    ['both', 'solo'].forEach((m) => { // link the two engines: similar unless data says otherwise
+    ['both', 'solo'].forEach((m) => { // link the two engines: similar corrections unless data says otherwise
       for (let b = 0; b < NB; b++) {
-        const sc = 0.15 * priorOf(m, b) + 0.5, w = 1 / (sc * sc), i = IDX('port', m, b), j = IDX('stbd', m, b);
-        H[i][i] += w; H[j][j] += w; H[i][j] -= w; H[j][i] -= w;
+        const i = IDX('port', m, b), j = IDX('stbd', m, b), dp = P[i].p - P[j].p;
+        const sc = 0.15 * (P[i].p + P[j].p) / 2 + 0.5, w = 1 / (sc * sc);
+        H[i][i] += w; H[j][j] += w; H[i][j] -= w; H[j][i] -= w; g[i] += w * dp; g[j] -= w * dp;
       }
     });
     const r = solve(H, g);
@@ -424,17 +517,83 @@ const Core = (() => {
     const v = r.x.map((z, i) => clamp(z, lim[i][0], lim[i][1]));
     return { cond: { a: v[0], c: v[1], bL: v[2], bF: v[3] }, sd: r.inv.map((row, i) => Math.sqrt(Math.max(0, row[i]))), nWind, nLoad };
   }
-  function refit() {
-    const ints = intervals();
+  // the curve in use (S.cons.active) changes only when you accept a proposal, change the base or restore an earlier curve
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  function packFit(cur, cond, condSd) {
+    const I = cur.inv, sd = (i) => r3(Math.sqrt(Math.max(0, I[i][i])));
+    const sig = { tot: Array.from({ length: NB }, (_, b) => { const i = IDX('port', 'both', b), j = IDX('stbd', 'both', b); return r3(Math.sqrt(Math.max(0, I[i][i] + I[j][j] + 2 * I[i][j]))); }) };
+    ENG.forEach((e) => { sig[e] = { both: Array.from({ length: NB }, (_, b) => sd(IDX(e, 'both', b))), solo: Array.from({ length: NB }, (_, b) => sd(IDX(e, 'solo', b))) }; });
+    const x = {}; ENG.forEach((e) => { x[e] = { both: cur.x[e].both.map(r3), solo: cur.x[e].solo.map(r3) }; });
+    return { t: Date.now(), x, sig, cond: { ...cond }, condSd: (condSd || [0.03, 0.03, 0.15, 0.15]).slice() };
+  }
+  function solveAll(ints) {
     let cond = { ...ZERO_COND }, cur = solveCurves(ints, cond), cs = { sd: [0.03, 0.03, 0.15, 0.15], nWind: 0, nLoad: { light: 0, full: 0 } };
-    if (ints.length) {
-      for (let it = 0; it < 4; it++) { cs = solveCond(ints, cur.x); cond = cs.cond; cur = solveCurves(ints, cond); }
+    if (ints.length) for (let it = 0; it < 4; it++) { cs = solveCond(ints, cur.x); cond = cs.cond; cur = solveCurves(ints, cond); }
+    return { fit: packFit(cur, cond, cs.sd), condN: { wind: cs.nWind, light: cs.nLoad.light, full: cs.nLoad.full } };
+  }
+  const lphX = (x, e, mode, kn) => (mode === 'both' ? bandInterp(x[e].both, kn) : mode === e ? bandInterp(x[e].solo, kn) : 0);
+  // biggest relative change on speed bands you have driven (0.25 h or more), and the change in condition effects
+  function consChange(a, b, loggedH) {
+    let rel = 0;
+    for (let k = 1; k < NB - 1; k++) {
+      if (loggedH.both[k] >= 0.25) { const u = a.x.port.both[k] + a.x.stbd.both[k], v = b.x.port.both[k] + b.x.stbd.both[k]; rel = Math.max(rel, Math.abs(v - u) / Math.max(0.5, u)); }
+      ENG.forEach((e) => { if (loggedH[e][k] >= 0.25) rel = Math.max(rel, Math.abs(b.x[e].solo[k] - a.x[e].solo[k]) / Math.max(0.5, a.x[e].solo[k])); });
     }
+    const ca = a.cond, cb = b.cond;
+    const cond = Math.max(Math.abs(cb.a - ca.a) * 5, Math.abs(cb.c - ca.c) * 6, Math.abs(cb.bL - ca.bL), Math.abs(cb.bF - ca.bF));
+    return { rel, cond };
+  }
+  function intervalRms(ints, fit) {
+    if (!ints.length) return NaN;
+    const r = ints.map((iv) => iv.used - iv.parts.reduce((t, p) => t + condFactor(p.tr, fit.cond) * baseFuel(p.tr, iv.tank, fit.x[iv.tank]), 0));
+    return Math.sqrt(r.reduce((t, v) => t + v * v, 0) / r.length);
+  }
+  function refit() {
+    const ints = intervals(), C = S.cons;
+    const { fit: cand, condN } = solveAll(ints);
     const loggedH = emptyBands();
     S.trips.forEach((tr) => { const bb = tripBands(tr); MODES.forEach((m) => bb[m].forEach((h, b) => { loggedH[m][b] += h; })); });
-    S.fit = { x: cur.x, inv: cur.inv, cond, condSd: cs.sd, condN: { wind: cs.nWind, light: cs.nLoad.light, full: cs.nLoad.full }, loggedH, nIntervals: ints.length, nTrips: S.trips.length, updated: Date.now() };
+    if (!C.active) C.active = cand;   // first start: what the data says now is the curve in use
+    const ch = consChange(C.active, cand, loggedH);
+    const rj = C.rejected ? consChange(C.rejected, cand, loggedH) : null;
+    if ((ch.rel > 0.03 || ch.cond > 0.03) && !(rj && rj.rel < 0.01 && rj.cond < 0.01)) {
+      C.pending = { ...cand, rel: ch.rel, condChange: ch.cond, n: ints.length, errBefore: intervalRms(ints, C.active), errAfter: intervalRms(ints, cand) };
+    } else C.pending = null;
+    const A = C.active;
+    S.fit = { x: A.x, sig: A.sig, cond: A.cond, condSd: A.condSd, condN, loggedH, nIntervals: ints.length, nTrips: S.trips.length, updated: Date.now() };
     return S.fit;
   }
+  function consSnapshot(note) {
+    const C = S.cons;
+    C.history.unshift({ t: Date.now(), note, active: C.active, base: JSON.parse(JSON.stringify(C.base)) });
+    C.history = C.history.slice(0, 10);
+  }
+  function acceptCons() {
+    const C = S.cons, p = C.pending; if (!p) return false;
+    consSnapshot('before accepting a proposal');
+    const { rel, condChange, n, errBefore, errAfter, ...fit } = p;
+    C.active = { ...fit, t: Date.now() }; C.pending = null; C.rejected = null; refit(); save(); return true;
+  }
+  function rejectCons() { const C = S.cons; if (C.pending) C.rejected = { x: C.pending.x, cond: C.pending.cond }; C.pending = null; save(); }
+  // a new base curve for one series (model from consSuggestions, or null = default formula): the correction starts from zero
+  function setConsBase(series, model) {
+    const C = S.cons;
+    consSnapshot('before a new base curve');
+    C.base[series] = model ? JSON.parse(JSON.stringify(model)) : null;
+    const keep = C.active ? C.active : null;
+    C.active = packFit(solveCurves([], keep ? keep.cond : ZERO_COND), keep ? keep.cond : ZERO_COND, keep ? keep.condSd : null);
+    C.rejected = null; refit(); save();
+  }
+  function restoreCons(i) {
+    const C = S.cons, h = C.history[i]; if (!h) return false;
+    consSnapshot('before restoring an earlier curve');
+    C.base = JSON.parse(JSON.stringify(h.base)); C.active = h.active; C.history.splice(i + 1, 1);
+    C.rejected = null; refit(); save(); return true;
+  }
+  function addConsPoint(series, kn, lpnm) { const q = { id: uid(), kn, lpnm, t: Date.now() }; S.cons.pts[series].push(q); S.cons.pts[series].sort((a, b) => a.kn - b.kn); save(); return q; }
+  function findConsPoint(id) { for (const k of Object.keys(S.cons.pts)) { const q = S.cons.pts[k].find((x) => x.id === id); if (q) return { series: k, q }; } return null; }
+  function updateConsPoint(id, kn, lpnm) { const f = findConsPoint(id); if (!f) return; f.q.kn = kn; f.q.lpnm = lpnm; S.cons.pts[f.series].sort((a, b) => a.kn - b.kn); save(); }
+  function deleteConsPoint(id) { Object.keys(S.cons.pts).forEach((k) => { S.cons.pts[k] = S.cons.pts[k].filter((x) => x.id !== id); }); save(); }
   const mids = Array.from({ length: NB - 1 }, (_, i) => bandMid(i + 1));
   function bandInterp(arr, kn) { if (kn < 1) return arr[0]; return interp(mids, arr.slice(1), kn); }
   // L/h of one engine in a mode ('both' | 'port' | 'stbd')
@@ -447,15 +606,14 @@ const Core = (() => {
   const lphTotal = (mode, kn) => lphEng('port', mode, kn) + lphEng('stbd', mode, kn);
   const lpnm = (mode, kn) => (kn >= 1 ? lphTotal(mode, kn) / kn : NaN);
   function lphSigma(mode, kn) {
-    if (!S.fit) return NaN;
-    const b = bandOf(kn), I = S.fit.inv;
-    if (mode === 'both') { const i = IDX('port', 'both', b), j = IDX('stbd', 'both', b); return Math.sqrt(Math.max(0, I[i][i] + I[j][j] + 2 * I[i][j])); }
-    const i = IDX(mode, 'solo', b); return Math.sqrt(Math.max(0, I[i][i]));
+    if (!S.fit || !S.fit.sig) return NaN;
+    const b = bandOf(kn);
+    return mode === 'both' ? S.fit.sig.tot[b] : S.fit.sig[mode].solo[b];
   }
   const lpnmSigma = (mode, kn) => (kn >= 1 ? lphSigma(mode, kn) / kn : NaN);
 
   function tripFuel(tr, e) {
-    const x = S.fit ? S.fit.x[e] : { both: Array.from({ length: NB }, (_, b) => priorOf('both', b)), solo: Array.from({ length: NB }, (_, b) => priorOf('solo', b)) };
+    const x = S.fit ? S.fit.x[e] : { both: Array.from({ length: NB }, (_, b) => priorBand(e, 'both', b).p), solo: Array.from({ length: NB }, (_, b) => priorBand(e, 'solo', b).p) };
     return baseFuel(tr, e, x) * condFactor(tr);
   }
   const tripFuelTotal = (tr) => tripFuel(tr, 'port') + tripFuel(tr, 'stbd');
@@ -824,7 +982,7 @@ const Core = (() => {
     NB, MAX_KN, ENG, MODES, bandOf, bandMid, bandLabel, num, haversine, uid, polyEval, median, tripBands,
     init, get state() { return S; }, save, saveNow, live, on: (f) => listeners.add(f),
     tank, litres, litresWith, baseL, unusableL, levelNow, usable, eventsFor, levelAfter, intervals, refit,
-    lphEng, lphTotal, lpnm, lphSigma, lpnmSigma, economy, range, tripFuel, tripFuelTotal, tripMeasured,
+    lphEng, lphTotal, lpnm, lphSigma, lpnmSigma, lphX, baseLph, consSuggestions, cfEval, acceptCons, rejectCons, setConsBase, restoreCons, addConsPoint, updateConsPoint, deleteConsPoint, findConsPoint, economy, range, tripFuel, tripFuelTotal, tripMeasured,
     fitCurve, proposeCurve, acceptCurve, rejectCurve, restoreCurve, setBase, setTableModel, measuredRange, curveEquations,
     addDip, addRefuel, deleteEvent, dipKind, needsPreDip, summary, seasons, tripEngineNm, tripEngineH, addAnchor, updateAnchor, deleteAnchor, anchorsFor, pointsKey,
     seasonTable, cleanKnAt, rpmFor, hullStatus, addCleaning,
