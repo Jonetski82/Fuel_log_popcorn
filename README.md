@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 5.4)
+# Popcorn Fuel Log (PWA, version 5.5)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -179,3 +179,6 @@ Tankit → Tilavuussovite:
 
 ## Versio 5.4 – seuranta sormella
 - Kulutuskäyrä, ehdotettujen sovitteiden kuvaaja ja ehdotuksen tarkastelu: kosketa tai vedä sormea vaakasuunnassa. Pystyviiva ja piste näyttävät käytössä olevan käyrän arvon: nopeus · kulutus ± epävarmuus · kantama. Napautus kuvaajan ulkopuolelle poistaa viivan.
+
+## Versio 5.5
+- Mittauskentissä (matkan jälkeen, ennen lähtöä, Kirjaa mittaus, tankkauksen syvyys ennen) näkyy vaaleanharmaana ennustettu syvyys; mitattu arvo kirjoitetaan sen päälle.

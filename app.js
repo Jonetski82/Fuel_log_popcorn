@@ -26,6 +26,14 @@
   // an untouched date field means "now" to the second, so entries made within the same minute keep their order
   const readWhen = (id) => { const el = document.getElementById(id); if (!el || !el.value || el.value === el.dataset.def) return Date.now(); const t = new Date(el.value).getTime(); return isFinite(t) ? t : Date.now(); };
   const whenField = (id, t) => `<div class="field"><label for="${id}">When<small>change if you log it afterwards</small></label><div class="inbox wide" style="width:58%"><input type="datetime-local" id="${id}" value="${localInput(t || Date.now())}" data-def="${t ? '' : localInput(Date.now())}"></div></div>`;
+  // predicted ruler reading now (from the level estimate), shown light grey in the input until a value is typed
+  function predDepth(t) {
+    const lv = Core.levelNow(t.id); if (!lv.known || !isFinite(lv.L)) return '';
+    let lo = 0, hi = t.maxMm * 1.05;
+    if (lv.L <= Core.litres(t, 0)) return rn(0);
+    for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (Core.litres(t, m) < lv.L) lo = m; else hi = m; }
+    return rn((lo + hi) / 2);
+  }
   const rs = (mm) => (isFinite(mm) ? rn(mm) + ' ' + RUL() : '–');
   const MODE_LABEL = { both: 'Both engines', port: 'Port only', stbd: 'Stbd only' };
   const MODE_SHORT = { both: 'Both', port: 'Port only', stbd: 'Stbd only' };
@@ -276,7 +284,7 @@
       <div class="card"><div class="cardhead"><div class="h">Time at speed</div><div class="sub">${(tr.samples || []).length} RPM stretches</div></div>${bandsHtml(bb)}<div class="sub">${modeTimes(bb)}</div></div>
       <div class="card"><div class="cardhead"><div class="h">Dip tanks with ruler</div><div class="sub">est. used P ${fi(Core.tripFuel(tr, 'port'))} · S ${fi(Core.tripFuel(tr, 'stbd'))} L</div></div>
         ${S().tanks.map((t) => `<div class="field"><label for="dip-${t.id}" style="color:${t.color};font-weight:600;flex:0 0 48px">${esc(t.name)}</label>
-          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}"><span>${RUL()}</span></div>
+          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}" placeholder="${predDepth(t)}"><span>${RUL()}</span></div>
           <div style="flex:1;text-align:right"><div class="num" style="font-size:20px" id="dipL-${t.id}">– L</div><div class="sub" id="dipU-${t.id}"></div></div></div>`).join('')}
         ${roughBox('dip-rough')}
         <div id="dip-sum"></div>
@@ -291,7 +299,7 @@
       <div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="helm">${IC.back}</button><div><div class="title">Dip before departure</div><div class="sub">${dtstr(Date.now())}</div></div></div>
       <div class="card"><div class="cardhead"><div class="h">Dip tanks with ruler</div></div>
         ${S().tanks.map((t) => `<div class="field"><label for="dip-${t.id}" style="color:${t.color};font-weight:600;flex:0 0 48px">${esc(t.name)}</label>
-          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}"><span>${RUL()}</span></div>
+          <div class="inbox"><input id="dip-${t.id}" inputmode="decimal" data-dip="${t.id}" placeholder="${predDepth(t)}"><span>${RUL()}</span></div>
           <div style="flex:1;text-align:right"><div class="num" style="font-size:20px" id="dipL-${t.id}">– L</div><div class="sub" id="dipU-${t.id}"></div></div></div>`).join('')}
         ${roughBox('dip-rough')}
         <div id="dip-sum"></div>
@@ -999,7 +1007,7 @@
       <div class="top back"><button class="iconbtn" aria-label="Back" data-act="go" data-v="${backOf.refuel || 'tanks'}">${IC.back}</button><div><div class="title">Log refuel</div><div class="sub">Depths, pump litres and price</div></div></div>
       <div class="seg"><button class="${refuelSel === 'port' ? 'on' : ''}" data-act="refuel-sel" data-t="port">${esc(s.tanks[0].name)}</button><button class="${refuelSel === 'stbd' ? 'on' : ''}" data-act="refuel-sel" data-t="stbd">${esc(s.tanks[1].name)}</button><button class="${refuelSel === 'both' ? 'on' : ''}" data-act="refuel-sel" data-t="both">Both</button></div>
       <div class="card">
-        ${tanks.map((t) => `<div class="field"><label for="rb-${t.id}">${two ? esc(t.name) + ': ' : ''}Depth before<small id="rbL-${t.id}">dip before filling</small></label><div class="inbox"><input id="rb-${t.id}" inputmode="decimal" data-rf="1"><span>${RUL()}</span></div></div>`).join('')}
+        ${tanks.map((t) => `<div class="field"><label for="rb-${t.id}">${two ? esc(t.name) + ': ' : ''}Depth before<small id="rbL-${t.id}">dip before filling</small></label><div class="inbox"><input id="rb-${t.id}" inputmode="decimal" data-rf="1" placeholder="${predDepth(t)}"><span>${RUL()}</span></div></div>`).join('')}
         <div class="field"><label for="rp">Litres from pump<small>${two ? 'one total, split by the dips' : 'from the pump display'}</small></label><div class="inbox"><input id="rp" inputmode="decimal" data-rf="1"><span>L</span></div></div>
         ${tanks.map((t) => `<div class="field"><label for="ra-${t.id}">${two ? esc(t.name) + ': ' : ''}Depth after<small id="raL-${t.id}">${two ? 'needed to split the total' : 'improves the tank curve'}</small></label><div class="inbox"><input id="ra-${t.id}" inputmode="decimal" data-rf="1"><span>${RUL()}</span></div></div>
           <div class="check"><input type="checkbox" id="rbrim-${t.id}" data-rf="1"><label for="rbrim-${t.id}">${two ? esc(t.name) + ' filled' : 'Filled'} to the brim (= ${fi(t.capacity)} L)</label></div>`).join('')}
@@ -1254,7 +1262,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 5.4 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 5.5 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -1437,7 +1445,7 @@
       const lastEnd = S().trips.reduce((m, tr) => Math.max(m, tr.end || 0), 0);
       dipKindSel = Date.now() - lastEnd < 6 * 3600000 && Core.needsPreDip() ? 'after' : 'check';
       sheet(`<h3>Log dip</h3><p>Ruler depth. Litres come from the tank curve. Leave a tank empty if you did not dip it.</p>
-        <div class="card">${S().tanks.map((t) => `<div class="field"><label for="sd-${t.id}" style="color:${t.color};font-weight:600">${esc(t.name)}<small id="sdL-${t.id}"> </small></label><div class="inbox"><input id="sd-${t.id}" inputmode="decimal" data-sdip="${t.id}"><span>${RUL()}</span></div></div>`).join('')}
+        <div class="card">${S().tanks.map((t) => `<div class="field"><label for="sd-${t.id}" style="color:${t.color};font-weight:600">${esc(t.name)}<small id="sdL-${t.id}"> </small></label><div class="inbox"><input id="sd-${t.id}" inputmode="decimal" data-sdip="${t.id}" placeholder="${predDepth(t)}"><span>${RUL()}</span></div></div>`).join('')}
         ${roughBox('sd-rough')}
         <div class="seg" style="margin:0">${[['after', 'After trip'], ['before', 'Before trip'], ['check', 'Separate']].map(([k, l]) => `<button class="${dipKindSel === k ? 'on' : ''}" data-act="sd-kind" data-k="${k}">${l}</button>`).join('')}</div>
         ${whenField('sd-when')}</div>
