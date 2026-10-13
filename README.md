@@ -1,4 +1,4 @@
-# Popcorn Fuel Log (PWA, version 5.1)
+# Popcorn Fuel Log (PWA, version 5.4)
 
 Trip, fuel, range and hull log for a twin-engine motorboat whose tanks each feed one engine. It runs as an installable web app on Android and works offline once loaded.
 
@@ -163,3 +163,19 @@ Tankit → Tilavuussovite:
 - Ehdotetut sovitteet: potenssikäyrä (joutokäynti + b·vⁿ), pehmeä käyrä, polynomi 2, suorat viivat. Valittu sovite on pohjakäyrä; ilman pisteitä pohjana on oletuskaava.
 - Mittaukset korjaavat pohjaa (varmuus ±25 %), mutta uusi käyrä otetaan käyttöön vasta, kun hyväksyt ehdotuksen ("Parannettu kulutuskäyrä saatavilla"). Tuuli- ja kuormakertoimet ovat mukana ehdotuksessa.
 - Aiemmat kulutuskäyrät voi palauttaa.
+
+## Versio 5.2 – tyhjäkäyntikulutus
+
+- Arviopisteet-kortissa Tyhjäkäynti: Port ja Stbd (L/h, oletus 1,0). Käytetään alle 1 kn -alueella, potenssikäyrän lähtöpisteenä ja pohjakäyrän alarajana.
+- Arvon muuttaminen on uusi pohja: potenssikäyrä sovitetaan uudelleen, korjaus alkaa alusta ja ehdotus lasketaan mittauksista. Ehdotusnäkymässä näkyy tyhjäkäynti nyt → uusi.
+
+## Versio 5.3 – tyhjäkäynti ja sovitteiden alkupää
+
+- Tyhjäkäynti (esim. akkujen lataus): Ruorissa painike Tyhjäkäynti (valitaan kone), kesto näkyy, Lopeta tyhjäkäynti tallentaa. Lokissa Tyhjäkäynnit-osio: lisää jälkikäteen, muokkaa, poista.
+- Tyhjäkäynti on oma kirjaus (ei matka): mittausvälin kulutus jaetaan matkojen ja tyhjäkäynnin kesken, ja tyhjäkäyntiarvo korjautuu ehdotuksen kautta. Tankin arvio laskee myös käynnissä olevan tyhjäkäynnin ajalta.
+- Kaikki kulutussovitteet alkavat nollanopeudessa tyhjäkäynnistä (ei notkahdusta pisteiden alapuolella).
+- Litraa/NM-kuvaajat alkavat 3 solmusta.
+- Saman minuutin aikana tehdyt kirjaukset pysyvät oikeassa järjestyksessä.
+
+## Versio 5.4 – seuranta sormella
+- Kulutuskäyrä, ehdotettujen sovitteiden kuvaaja ja ehdotuksen tarkastelu: kosketa tai vedä sormea vaakasuunnassa. Pystyviiva ja piste näyttävät käytössä olevan käyrän arvon: nopeus · kulutus ± epävarmuus · kantama. Napautus kuvaajan ulkopuolelle poistaa viivan.

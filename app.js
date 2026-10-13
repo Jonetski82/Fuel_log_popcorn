@@ -23,8 +23,9 @@
   // date-time fields (entries can be logged afterwards)
   const p2 = (n) => String(n).padStart(2, '0');
   const localInput = (t) => { const d = new Date(t); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + 'T' + p2(d.getHours()) + ':' + p2(d.getMinutes()); };
-  const readWhen = (id) => { const el = document.getElementById(id); const t = el && el.value ? new Date(el.value).getTime() : Date.now(); return isFinite(t) ? t : Date.now(); };
-  const whenField = (id, t) => `<div class="field"><label for="${id}">When<small>change if you log it afterwards</small></label><div class="inbox wide" style="width:58%"><input type="datetime-local" id="${id}" value="${localInput(t || Date.now())}"></div></div>`;
+  // an untouched date field means "now" to the second, so entries made within the same minute keep their order
+  const readWhen = (id) => { const el = document.getElementById(id); if (!el || !el.value || el.value === el.dataset.def) return Date.now(); const t = new Date(el.value).getTime(); return isFinite(t) ? t : Date.now(); };
+  const whenField = (id, t) => `<div class="field"><label for="${id}">When<small>change if you log it afterwards</small></label><div class="inbox wide" style="width:58%"><input type="datetime-local" id="${id}" value="${localInput(t || Date.now())}" data-def="${t ? '' : localInput(Date.now())}"></div></div>`;
   const rs = (mm) => (isFinite(mm) ? rn(mm) + ' ' + RUL() : '–');
   const MODE_LABEL = { both: 'Both engines', port: 'Port only', stbd: 'Stbd only' };
   const MODE_SHORT = { both: 'Both', port: 'Port only', stbd: 'Stbd only' };
@@ -190,7 +191,8 @@
       <div class="btnrow"><button class="btn" data-act="pause">${A.paused ? 'Resume' : 'Pause'}</button><button class="btn primary" data-act="end-trip">End trip &amp; dip tanks</button></div>
       <div class="note">Keep the app open on screen while under way: Android pauses GPS for web apps when the screen is off. Set RPM whenever you change throttle — steady stretches teach the app your speed–RPM table and hull condition.</div>`
     : `${warn}
-      <div class="btnrow" style="padding-top:10px"><button class="btn primary" data-act="start-trip">Start trip</button></div>
+      ${idleCard()}
+      <div class="btnrow" style="padding-top:10px"><button class="btn primary grow" data-act="start-trip">Start trip</button>${S().idleRun ? '' : '<button class="btn" data-act="idle-start-sheet">Idle run</button>'}</div>
       ${tankBars()}
       <div class="card" style="gap:4px">${ecoHtml(true)}</div>
       <div class="sub" style="padding:4px 16px">Trips without GPS (logged afterwards) can be added on the Trips tab.</div>`;
@@ -226,7 +228,36 @@
   }
   let liveTick = 0;
   Core.on(() => { const now = Date.now(); if (now - liveTick > 900) { liveTick = now; updateHelmLive(); } });
-  setInterval(() => { const A = S() && S().active; if (A && current === 'helm') $('#helm-sub').textContent = 'Trip ' + clock(Date.now() - A.start) + (A.paused ? ' · paused' : ''); }, 1000);
+  setInterval(() => {
+    const A = S() && S().active; if (A && current === 'helm') $('#helm-sub').textContent = 'Trip ' + clock(Date.now() - A.start) + (A.paused ? ' · paused' : '');
+    const ir = S() && S().idleRun, el = document.getElementById('h-idle');
+    if (ir && el) { el.textContent = clock(Date.now() - ir.start); const u = document.getElementById('h-idle-used'); if (u) u.textContent = '≈ ' + f(Core.tripFuelTotal(Core.idleNow())) + ' L'; }
+  }, 1000);
+  // idle runs: engine (car) on while standing, without GPS — battery charging, heating, air conditioning
+  const idleModeLabel = (m) => MODE_LABEL[m] || MODE_LABEL.both;
+  function idleCard() {
+    const ir = S().idleRun; if (!ir) return '';
+    return `<div class="card dark"><div class="cardhead"><div><div class="h">Idle run (e.g. charging batteries)</div><div class="sub">${esc(idleModeLabel(ir.mode)) + ' · ' + 'since ' + tstr(ir.start)}</div></div><div style="text-align:right"><div class="num" style="font-size:24px" id="h-idle">${clock(Date.now() - ir.start)}</div><div class="sub" id="h-idle-used"></div></div></div>
+      <button class="btn small" style="background:#fff;color:#13212F" data-act="idle-stop">End idle run</button></div>`;
+  }
+  let idleEdit = null, idleMode = 'both';
+  function idleSheet(tr) {
+    idleEdit = tr ? tr.id : null; idleMode = tr ? tr.manual.mode : (S().settings.lastIdleMode || 'port');
+    const h = tr ? Math.floor(tr.hours) : '', mi = tr ? Math.round((tr.hours - Math.floor(tr.hours)) * 60) : '';
+    sheet(`<h3>${tr ? 'Edit idle run' : 'Add idle run'}</h3><p>Engine running at the dock or at anchor, e.g. to charge the batteries.</p>
+      <div class="card">
+        <div class="field"><label for="ir-start">Start<small>date and time</small></label><div class="inbox wide" style="width:58%"><input type="datetime-local" id="ir-start" value="${localInput(tr ? tr.start : Date.now() - 2 * 3600000)}"></div></div>
+        <div class="field"><label for="ir-h">Duration<small>hours and minutes</small></label><div style="display:flex;gap:6px"><div class="inbox" style="width:76px"><input id="ir-h" inputmode="numeric" value="${h}"><span>h</span></div><div class="inbox" style="width:84px"><input id="ir-min" inputmode="numeric" value="${mi}"><span>min</span></div></div></div>
+        <div class="seg" style="margin:0">${Core.MODES.map((m) => `<button class="${idleMode === m ? 'on' : ''}" data-act="ir-mode" data-m="${m}">${MODE_LABEL[m]}</button>`).join('')}</div>
+      </div>
+      <div class="btnrow"><button class="btn grow" data-act="sheet-close">Cancel</button>${tr ? '<button class="btn" data-act="ir-del">Delete</button>' : ''}<button class="btn primary" data-act="ir-save">${tr ? 'Save' : 'Add'}</button></div>`);
+  }
+  function idleLogCard(from, to) {
+    const runs = S().trips.filter((t) => t.idle && t.start >= from && t.start < to).sort((a, b) => b.start - a.start);
+    return `<div class="card" style="gap:0"><div class="cardhead"><div class="h">Idle runs</div><div class="sub">${runs.length} runs · ${dur(runs.reduce((a, t) => a + t.hours, 0))}</div></div>
+      ${runs.length ? runs.map((t) => `<div class="logrow"><button class="main" data-act="ir-edit" data-id="${t.id}" style="border:0;background:transparent;text-align:left;padding:0;font:inherit;color:inherit;cursor:pointer"><b>${dtstr(t.start)}</b><span>${esc(idleModeLabel(t.manual.mode))} · ${dur(t.hours)}</span></button><div class="right"><span class="num">≈ ${f(Core.tripFuelTotal(t))} L</span></div><button class="iconbtn" aria-label="Delete idle run" data-act="ir-del-row" data-id="${t.id}">${IC.x}</button></div>`).join('') : '<div class="sub">No idle runs in this period.</div>'}
+      <div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow" data-act="ir-add">Add idle run</button></div></div>`;
+  }
 
   // END TRIP
   R.tripend = () => {
@@ -300,7 +331,7 @@
         <div id="trips-dyn"></div>`;
       getMap('trips'); tripsBuilt = true;
     }
-    const trips = s.trips.slice().sort((a, b) => b.start - a.start);
+    const trips = s.trips.filter((t) => !t.idle).sort((a, b) => b.start - a.start);
     const vals = trips.map((t) => { const m = Core.tripMeasured(t); return m ? m.lpnm : Core.tripFuelTotal(t) / Math.max(0.1, t.distNm); });
     const br = breaks(vals);
     const totNm = trips.reduce((a, t) => a + t.distNm, 0), totL = trips.reduce((a, t) => a + Core.tripFuelTotal(t), 0);
@@ -396,12 +427,44 @@
   const segOn = (el) => el.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
 
   // CHART helper
+  // finger tracking on speed charts: opt.track = { step, y(x), tip(x) } — a vertical line, a dot on the curve in use and one info line
+  const TRACK = new Map(); let trackSeq = 0, trackSvg = null;
+  function trackAt(svg, clientX) {
+    const t = TRACK.get(svg.dataset.track); if (!t) return;
+    const o = t.opt, r = svg.getBoundingClientRect(); if (!r.width) return;
+    let v = o.xMin + ((((clientX - r.left) / r.width) * 340 - 40) / 292) * (o.xMax - o.xMin);
+    const st = o.track.step || 0.1; v = Math.round(Math.max(o.xMin, Math.min(o.xMax, v)) / st) * st;
+    const X = 40 + ((v - o.xMin) / (o.xMax - o.xMin)) * 292, y = o.track.y(v);
+    const Yv = 200 - ((Math.min(Math.max(y, o.yMin), o.yMax) - o.yMin) / (o.yMax - o.yMin)) * 190;
+    const g = svg.querySelector('.trk'), tip = svg.parentNode.querySelector('.trk-tip');
+    g.style.display = ''; g.querySelector('line').setAttribute('x1', X.toFixed(1)); g.querySelector('line').setAttribute('x2', X.toFixed(1));
+    const c = g.querySelector('circle'); c.setAttribute('cx', X.toFixed(1)); c.setAttribute('cy', Yv.toFixed(1)); c.style.display = isFinite(y) ? '' : 'none';
+    tip.textContent = o.track.tip(v); tip.style.display = 'block';
+  }
+  function trackHide() { document.querySelectorAll('.trk').forEach((g) => { g.style.display = 'none'; }); document.querySelectorAll('.trk-tip').forEach((t) => { t.style.display = 'none'; }); }
+  document.addEventListener('pointerdown', (e) => {
+    const svg = e.target.closest && e.target.closest('svg.chart[data-track]');
+    trackHide(); trackSvg = svg || null;
+    if (svg) trackAt(svg, e.clientX);
+  });
+  document.addEventListener('pointermove', (e) => { if (trackSvg && (e.pointerType !== 'mouse' || e.buttons)) trackAt(trackSvg, e.clientX); });
+  ['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, () => { trackSvg = null; }));
+  const rangeTip = (mode, kn) => { const r = Core.range(mode, kn); return r ? (FIs() ? 'kantama ' : 'range ') + fi(r.oneWay) + ' NM' : (FIs() ? 'kantama: mittaa ensin' : 'range: dip first'); };
+  const FIs = () => typeof I18N !== 'undefined' && I18N.lang === 'fi';
   function lineChart(series, opt) {
+    if (opt.track) {
+      if (TRACK.size > 40) [...TRACK.keys()].forEach((k) => { if (!document.querySelector(`[data-track="${k}"]`)) TRACK.delete(k); });
+      const id = 'tk' + (++trackSeq); TRACK.set(id, { opt });
+      return `<div class="chartwrap"><div class="trk-tip" data-noi18n></div>${lineChartSvg(series, opt, id)}</div>`;
+    }
+    return lineChartSvg(series, opt, null);
+  }
+  function lineChartSvg(series, opt, trackId) {
     const W = 340, H = 230, x0 = 40, x1 = 332, y0 = 200, y1 = 10;
     const X = (v) => x0 + ((v - opt.xMin) / (opt.xMax - opt.xMin)) * (x1 - x0);
     const Y = (v) => y0 - ((Math.min(Math.max(v, opt.yMin), opt.yMax) - opt.yMin) / (opt.yMax - opt.yMin)) * (y0 - y1);
     const path = (pts) => pts.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join(' ');
-    return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(opt.label)}">
+    return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(opt.label)}"${trackId ? ` data-track="${trackId}"` : ''}>
       ${opt.yTicks.map((t) => `<line x1="${x0}" x2="${x1}" y1="${Y(t)}" y2="${Y(t)}" stroke="#ECE8DC"/><text x="${x0 - 6}" y="${Y(t) + 4}" font-size="11" fill="#4F5B66" text-anchor="end">${opt.yFmt(t)}</text>`).join('')}
       ${opt.xTicks.map((t) => `<text x="${X(t)}" y="216" font-size="11" fill="#4F5B66" text-anchor="middle">${opt.xFmt(t)}</text>`).join('')}
       <text x="${x1}" y="228" font-size="11" fill="#4F5B66" text-anchor="end">${esc(opt.xUnit)}</text>
@@ -411,6 +474,7 @@
       ${series.map((s) => (s.pts && s.pts.length ? `<path d="${path(s.pts)}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2.5}" ${s.dash ? `stroke-dasharray="${s.dash}"` : ''} stroke-linejoin="round"/>` : '')).join('')}
       ${series.map((s) => (s.dots || []).map((d) => `<circle cx="${X(d[0]).toFixed(1)}" cy="${Y(d[1]).toFixed(1)}" r="${d[2] || 4}" fill="${s.dotFill || s.color}" stroke="${s.dotStroke || '#fff'}" stroke-width="1.5"/>`).join('')).join('')}
       ${series.map((s) => (s.segs || []).map((g) => `<line x1="${X(g[0])}" y1="${Y(g[1])}" x2="${X(g[2])}" y2="${Y(g[3])}" stroke="${s.color}" stroke-width="1.5"/><circle cx="${X(g[2])}" cy="${Y(g[3])}" r="3.5" fill="#fff" stroke="${s.color}" stroke-width="1.5"/>`).join('')).join('')}
+      ${trackId ? `<g class="trk" style="display:none"><line y1="${y1}" y2="${y0}" stroke="#B8470F" stroke-width="1.5"/><circle r="5" fill="#B8470F" stroke="#fff" stroke-width="2"/></g>` : ''}
     </svg>`;
   }
   const niceMax = (v) => { const p = Math.pow(10, Math.floor(Math.log10(v || 1))); const m = v / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p; };
@@ -427,14 +491,15 @@
     const sg = Core.consSuggestions(series);
     let sug = '';
     if (sg.list.length) {
-      const best = sg.list[0], top = 17, val = (lph, kn) => (curveMetric === 'nm' ? lph / kn : lph);
-      const sp = []; for (let k = 2; k <= top; k += 0.5) sp.push(k);
+      const best = sg.list[0], top = 17, val = (lph, kn) => (curveMetric === 'nm' ? lph / kn : lph), x0 = curveMetric === 'nm' ? 3 : 0;
+      const sp = []; for (let k = x0; k <= top; k += 0.5) sp.push(k);
       const yMax = niceMax(Math.max(...sp.slice(0, 26).map((k) => Math.max(val(Core.baseLph(series, k), k), val(Core.cfEval(best.model, k), k)))) * 1.05);
       const chart = lineChart([
         { pts: sp.map((k) => [k, val(Core.baseLph(series, k), k)]), color: '#9AA5AE', width: 2 },
-        { pts: sp.map((k) => [k, val(Math.max(series === 'both' ? 2 : 1.2, Core.cfEval(best.model, k)), k)]), color: '#E07A2E', width: 2.5 },
+        { pts: sp.map((k) => [k, val(Math.max(Core.floorOf(series), Core.cfEval(best.model, k)), k)]), color: '#E07A2E', width: 2.5 },
         { color: '#13212F', dots: list.map((q) => [q.kn, curveMetric === 'nm' ? q.lpnm : q.lpnm * q.kn, 4]), dotFill: '#E9B44C', dotStroke: '#13212F' }],
-        { label: 'Suggested fit', xMin: 2, xMax: top, yMin: 0, yMax, xTicks: [2, 4, 6, 8, 10, 12, 14, 16], yTicks: [0, 0.25, 0.5, 0.75, 1].map((q) => q * yMax), xFmt: (v) => v, yFmt: (v) => (yMax <= 10 ? f(v) : fi(v)), xUnit: 'kn' });
+        { track: { step: 0.1, y: (k) => val(Core.baseLph(series, k), k), tip: (k) => `${f(k)} kn · ${FIs() ? 'pohja' : 'base'} ${f(val(Core.baseLph(series, k), k), curveMetric === 'nm' ? 2 : 1)} ${curveMetric === 'nm' ? 'L/NM' : 'L/h'}` },
+          label: 'Suggested fit', xMin: x0, xMax: top, yMin: 0, yMax, xTicks: x0 ? [3, 6, 9, 12, 15] : [0, 2, 4, 6, 8, 10, 12, 14, 16], yTicks: [0, 0.25, 0.5, 0.75, 1].map((q) => q * yMax), xFmt: (v) => v, yFmt: (v) => (yMax <= 10 ? f(v) : fi(v)), xUnit: 'kn' });
       sug = `<div class="cardhead" style="padding-top:10px"><div class="h">Suggested fits</div><div class="sub">${sg.loo ? 'error when a point is left out' : 'error at your points'}</div></div>
         ${sg.loo ? '' : '<div class="sub">With 2–3 points the fits cannot be compared reliably yet; the first is the most natural shape for fuel use. Add points to compare them by error.</div>'}
         ${sg.list.map((x, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #ECE8DC"><div><b>${CF_LABEL[x.m]}${i === 0 ? ' ★' : ''}</b><div class="sub">${x.m === 'power' ? 'exponent ' + f(x.model.n, 2) + ' · ' : ''}±${f(x.rms, 2)} L/NM</div></div><button class="btn small ${i === 0 ? 'primary' : ''}" data-act="cp-use" data-i="${i}">Use</button></div>`).join('')}
@@ -443,6 +508,10 @@
     } else if (list.length < 2) sug = '<div class="sub" style="padding-top:8px">Add at least two points to get suggested fits.</div>';
     return `<div class="card" id="cp-card" style="gap:0"><div class="cardhead"><div class="h">Estimate points</div><div class="sub">${SERIES_LABEL[series]}</div></div>
       <div class="sub" style="padding-bottom:4px">Your estimate of fuel use at a few speeds. The fit you choose is the base curve; measured trips correct it. Tap a point to correct or delete it.</div>
+      <div class="cardhead" style="padding-top:4px"><div class="h" style="font-size:14px">Idle use</div><div class="sub">per engine, under 1 kn</div></div>
+      ${S().tanks.map((t) => `<div class="field" style="padding:4px 0"><label for="idle-${t.id}" style="color:${t.color};font-weight:600">${esc(t.name)}</label><div class="inbox"><input id="idle-${t.id}" inputmode="decimal" value="${dv(C.idle[t.id])}"><span>L/h</span></div></div>`).join('')}
+      <div class="btnrow" style="padding:4px 0 10px 0"><button class="btn small grow" data-act="idle-save">Save idle use</button></div>
+      <div class="cardhead" style="padding-bottom:4px"><div class="h" style="font-size:14px">Points</div></div>
       ${rows || '<div class="sub">No estimate points yet.</div>'}
       <div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow dark" data-act="cp-add">Add point</button></div>
       <div class="cardhead" style="padding-top:10px;align-items:center"><div class="sub">Base: <b style="color:#13212F">${baseLabel(series)}</b></div>${C.base[series] ? '<button class="btn small" data-act="cp-default">Use default formula</button>' : ''}</div>
@@ -466,19 +535,22 @@
     const anySolo = (e) => H[e].some((h) => h >= 0.25);
     const pc = (v) => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(0) + ' %';
     const cRow = (label, u, v) => `<div class="tr" style="grid-template-columns:2fr 1fr 1fr"><div>${label}</div><div>${pc(u)}</div><div><b>${pc(v)}</b></div></div>`;
-    const sp = []; for (let k = 2; k <= 17; k += 0.5) sp.push(k);
+    const sp = []; for (let k = 3; k <= 17; k += 0.5) sp.push(k);
     const yMax = niceMax(Math.max(...sp.slice(0, 26).map((k) => Math.max(tot(a.x, k), tot(p.x, k)) / k)) * 1.05);
     const chart = lineChart([
       { pts: sp.map((k) => [k, Core.baseLph('both', k) / k]), color: '#9AA5AE', width: 1.5, dash: '5 4' },
       { pts: sp.map((k) => [k, tot(a.x, k) / k]), color: '#13212F' },
       { pts: sp.map((k) => [k, tot(p.x, k) / k]), color: '#E07A2E', width: 2.5, dash: '7 4' }],
-      { label: 'Current and proposed consumption curve', xMin: 2, xMax: 17, yMin: 0, yMax, xTicks: [2, 4, 6, 8, 10, 12, 14, 16], yTicks: [0, 0.25, 0.5, 0.75, 1].map((q) => q * yMax), xFmt: (v) => v, yFmt: (v) => f(v), xUnit: 'kn' });
+      { track: { step: 0.1, y: (k) => tot(a.x, k) / k, tip: (k) => `${f(k)} kn · ${f(tot(a.x, k) / k, 2)} ± ${f(Core.lpnmSigma('both', k), 2)} L/NM · ${rangeTip('both', k)}` },
+        label: 'Current and proposed consumption curve', xMin: 3, xMax: 17, yMin: 0, yMax, xTicks: [3, 6, 9, 12, 15], yTicks: [0, 0.25, 0.5, 0.75, 1].map((q) => q * yMax), xFmt: (v) => v, yFmt: (v) => f(v), xUnit: 'kn' });
     sheet(`<h3>Improved consumption curve</h3><p>Fitted to ${p.n} measured tank intervals. Nothing changes until you accept it.</p>
       <div class="card" style="gap:6px"><div class="cardhead"><div class="sub">Error vs measured intervals</div><div class="num" style="font-size:20px">${f(p.errBefore)} → ${f(p.errAfter)} L</div></div>
         <div class="table"><div class="tr head" style="grid-template-columns:1.4fr repeat(3,1fr)"><div>L/NM</div>${kns.map((k) => `<div>${f(k)} kn</div>`).join('')}</div>
         ${row('Both engines', tot)}${anySolo('port') ? row('Port solo', solo('port')) : ''}${anySolo('stbd') ? row('Stbd solo', solo('stbd')) : ''}</div>
         <div class="table" style="padding-top:6px"><div class="tr head" style="grid-template-columns:2fr 1fr 1fr"><div>Conditions effect</div><div>Now</div><div>New</div></div>
         ${cRow('Head wind 5 m/s', a.cond.a * 5, p.cond.a * 5)}${cRow('Light load', a.cond.bL, p.cond.bL)}${cRow('Full load', a.cond.bF, p.cond.bF)}</div>
+        <div class="table" style="padding-top:6px"><div class="tr head" style="grid-template-columns:2fr 1fr 1fr"><div>Idle use, L/h</div><div>Now</div><div>New</div></div>
+        ${S().tanks.map((t) => `<div class="tr" style="grid-template-columns:2fr 1fr 1fr"><div>${esc(t.name)}</div><div>${f(a.x[t.id].both[0])}</div><div><b>${f(p.x[t.id].both[0])}</b></div></div>`).join('')}</div>
       </div>
       <div class="card" style="padding:8px 4px 4px 0"><div class="sub" style="padding-left:12px">Both engines, L/NM: solid = current · orange dashed = proposed · grey dashed = base</div>${chart}</div>
       <div class="btnrow"><button class="btn grow" data-act="cons-reject">Keep current</button><button class="btn primary" data-act="cons-accept">Use new curve</button></div>`);
@@ -501,22 +573,25 @@
   function renderFuelCurve() {
     const fit = S().fit, nm = curveMetric === 'nm', mode = curveMode;
     $('#curve-sub').textContent = `${fit.nTrips} trips · ${fit.nIntervals} measured tank intervals`;
-    const sp = []; for (let b = 2; b <= 16; b++) sp.push(Core.bandMid(b));
+    const x0 = nm ? 3 : 2;   // per mile: from 3 kn — below that idle use per mile grows without bound
+    const mids = []; for (let b = 2; b <= 16; b++) if (Core.bandMid(b) >= x0) mids.push(Core.bandMid(b));
+    const sp = (mids[0] > x0 ? [x0] : []).concat(mids);
     const val = (lph, kn) => (nm ? lph / kn : lph);
     const band = sp.map((kn) => { const y = val(Core.lphTotal(mode, kn), kn), e = val(Core.lphSigma(mode, kn), kn); return [kn, Math.max(0, y - e), y + e]; });
     const hrs = fit.loggedH[mode];
     const series = [{ pts: sp.map((kn) => [kn, val(Core.lphTotal(mode, kn), kn)]), color: '#13212F', band,
-      dots: sp.map((kn) => { const b = Core.bandOf(kn); return hrs[b] > 0.02 ? [kn, val(Core.lphTotal(mode, kn), kn), 3 + Math.sqrt(hrs[b]) * 1.5] : null; }).filter(Boolean) }];
+      dots: mids.map((kn) => { const b = Core.bandOf(kn); return hrs[b] > 0.02 ? [kn, val(Core.lphTotal(mode, kn), kn), 3 + Math.sqrt(hrs[b]) * 1.5] : null; }).filter(Boolean) }];
     series.unshift({ pts: sp.map((kn) => [kn, val(Core.baseLph(mode, kn), kn)]), color: '#9AA5AE', width: 1.5, dash: '5 4' });
     const cpts = S().cons.pts[mode];
-    if (cpts.length) series.push({ color: '#13212F', dots: cpts.filter((q) => q.kn >= 2 && q.kn <= 17).map((q) => [q.kn, nm ? q.lpnm : q.lpnm * q.kn, 4.5]), dotFill: '#E9B44C', dotStroke: '#13212F' });
+    if (cpts.length) series.push({ color: '#13212F', dots: cpts.filter((q) => q.kn >= x0 && q.kn <= 17).map((q) => [q.kn, nm ? q.lpnm : q.lpnm * q.kn, 4.5]), dotFill: '#E9B44C', dotStroke: '#13212F' });
     if (mode === 'both') {
       series.push({ pts: sp.map((kn) => [kn, val(Core.lphEng('port', 'both', kn), kn)]), color: '#A63A2A', width: 2 });
       series.push({ pts: sp.map((kn) => [kn, val(Core.lphEng('stbd', 'both', kn), kn)]), color: '#1F6E5A', width: 2 });
     }
     const yMax = niceMax(Math.max(...band.slice(0, 12).map((p) => p[2])) * 1.05);
     const kn = Core.live.sogKn;
-    const chart = lineChart(series, { label: 'Fuel use against speed', xMin: 2, xMax: 17, yMin: 0, yMax, xTicks: [2, 4, 6, 8, 10, 12, 14, 16], yTicks: [0, 0.2, 0.4, 0.6, 0.8, 1].map((q) => q * yMax), xFmt: (v) => v, yFmt: (v) => (yMax <= 10 ? f(v) : fi(v)), xUnit: 'kn',
+    const chart = lineChart(series, { track: { step: 0.1, y: (v) => val(Core.lphTotal(mode, v), v), tip: (v) => `${f(v)} kn · ${f(val(Core.lphTotal(mode, v), v), nm ? 2 : 1)} ± ${f(val(Core.lphSigma(mode, v), v), nm ? 2 : 1)} ${nm ? 'L/NM' : 'L/h'} · ${rangeTip(mode, v)}` },
+      label: 'Fuel use against speed', xMin: x0, xMax: 17, yMin: 0, yMax, xTicks: nm ? [3, 6, 9, 12, 15] : [2, 4, 6, 8, 10, 12, 14, 16], yTicks: [0, 0.2, 0.4, 0.6, 0.8, 1].map((q) => q * yMax), xFmt: (v) => v, yFmt: (v) => (yMax <= 10 ? f(v) : fi(v)), xUnit: 'kn',
       vlines: [{ x: S().settings.minCruiseKn, color: '#C9C1AA' }].concat(kn >= 2 && kn <= 17 ? [{ x: kn, color: '#B8470F' }] : []) });
     const rows = []; for (let b = 1; b < Core.NB - 1; b++) if (hrs[b] > 0.02 || (b >= 4 && b <= 14)) rows.push(b);
     const xr = fit.x, cols = 'grid-template-columns:1.25fr 1fr 1fr 1fr .9fr .8fr';
@@ -652,6 +727,7 @@
           ${row(name('port'), sm.port)}${row(name('stbd'), sm.stbd)}${row('Boat total', sm.boat, true)}
         </div>
         <div class="sub" style="padding-top:6px">Engine NM = distance with that engine running · h = engine running time, idling included (boat: trip time) · L = fuel used · € = refuels in the period</div>
+        ${sm.idleH > 0.01 ? `<div class="sub">h includes ${dur(sm.idleH)} of idle runs (e.g. battery charging).</div>` : ''}
         ${sm.boat.Lest > 0.5 ? `<div class="sub">~ includes ${fi(sm.boat.Lest)} L estimated from the consumption model (trips without dips).</div>` : ''}
         <div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow" data-act="go" data-v="trips">Trips</button><button class="btn small grow" data-act="manual-new">Add trip by hand</button></div>
       </div>
@@ -661,6 +737,7 @@
         ${groups.length > LOG_N ? `<div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="log-all" data-k="refuel">${logAll.refuel ? 'Show fewer' : 'Show all ' + groups.length}</button></div>` : ''}
         <div class="btnrow" style="padding:8px 0 0 0"><button class="btn small grow primary" data-act="go" data-v="refuel">Log refuel</button></div>
       </div>
+      ${idleLogCard(from, to)}
       <div class="card" style="gap:0"><div class="cardhead"><div class="h">Dip log</div><div class="sub">${dips.length} dips</div></div>
         ${dips.length ? (logAll.dip ? dips : dips.slice(0, LOG_N)).map((g) => `<div class="logrow"><div class="main"><b>${dtstr(g.t)}</b><span>${KIND_LABEL[Core.dipKind(g.list[0])]}${g.list.some((e) => e.rough) ? ' · rough' : ''}</span></div><div class="right">${g.list.map((e) => `<span><span class="num" style="color:${Core.tank(e.tank).color}">${esc(Core.tank(e.tank).name)}</span> <span class="num">${rs(e.mm)}</span> · ${fi(Core.litres(Core.tank(e.tank), e.mm))} L</span>`).join('')}</div><button class="iconbtn" aria-label="Delete reading" data-act="del-dips" data-ids="${g.list.map((e) => e.id).join(',')}">${IC.x}</button></div>`).join('') : '<div class="sub">No dips in this period.</div>'}
         ${dips.length > LOG_N ? `<div class="btnrow" style="padding:6px 0 0 0"><button class="btn small grow" data-act="log-all" data-k="dip">${logAll.dip ? 'Show fewer' : 'Show all ' + dips.length}</button></div>` : ''}
@@ -1177,7 +1254,7 @@
         <div class="btnrow" style="padding:0"><button class="btn small grow" data-act="export">Export backup</button><label class="btn small grow" for="importf">Import backup</label><input type="file" id="importf" accept="application/json,.json" style="display:none" data-act="import"></div>
       </div>
       <div class="btnrow"><button class="btn small grow" data-act="check-update">Check for app update</button></div>
-      <div class="note">Version 5.1 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
+      <div class="note">Version 5.4 · Fuel stations © OpenStreetMap contributors · Wind data © Finnish Meteorological Institute (CC BY 4.0) · Chart data © Traficom, CC BY 4.0 — not quality-assured, not for navigation. Seamarks © OpenSeaMap, map © OpenStreetMap contributors, background map © Maanmittauslaitos.</div>`;
   };
 
   async function detectTraficom() {
@@ -1280,6 +1357,22 @@
       if (!n) return toast('Enter at least one depth, or skip');
       toast('Dip saved'); go('helm'); loadSheet();
     },
+'idle-start-sheet': () => sheet(`<h3>Idle run</h3><p>Engine running without moving, e.g. to charge the batteries. Which engine?</p><div class="list">${Core.MODES.map((m) => `<button class="item" data-act="idle-start" data-m="${m}"><span class="main"><b>${MODE_LABEL[m]}</b></span></button>`).join('')}</div>`),
+    'idle-start': (el) => { closeSheet(); S().settings.lastIdleMode = el.dataset.m; Core.startIdle(el.dataset.m); renderHelmDyn(); toast('Idle run started'); },
+    'idle-stop': () => { const tr = Core.stopIdle(); renderHelmDyn(); toast(tr ? 'Idle run saved: ' + dur(tr.hours) : 'Idle run under a minute — not saved'); },
+    'ir-add': () => idleSheet(null),
+    'ir-edit': (el) => { const tr = S().trips.find((t) => t.id === el.dataset.id); if (tr) idleSheet(tr); },
+    'ir-mode': (el) => { idleMode = el.dataset.m; segOn(el); },
+    'ir-save': () => {
+      const start = readWhen('ir-start'), h = (Core.num($('#ir-h').value) || 0) + (Core.num($('#ir-min').value) || 0) / 60;
+      if (!(h > 0 && h <= 24)) return toast('Enter the duration (up to 24 h)');
+      if (start + h * 3600000 > Date.now() + 300000) return toast('The idle run cannot end in the future');
+      const o = { start, hours: h, mode: idleMode };
+      if (idleEdit) Core.updateIdle(idleEdit, o); else { Core.addIdle(o); S().settings.lastIdleMode = idleMode; }
+      closeSheet(); toast(idleEdit ? 'Saved' : 'Idle run added'); (R[current] || R.log)();
+    },
+    'ir-del': () => { const id = idleEdit; confirmSheet('Delete this idle run?', 'Levels and consumption are recalculated without it.', 'Delete', async () => { await Core.deleteTrip(id); (R[current] || R.log)(); }); },
+    'ir-del-row': (el) => confirmSheet('Delete this idle run?', 'Levels and consumption are recalculated without it.', 'Delete', async () => { await Core.deleteTrip(el.dataset.id); (R[current] || R.log)(); }),
     'manual-new': () => go('tripform', {}),
     'manual-edit': (el) => go('tripform', { id: el.dataset.id }),
     'mt-mode': (el) => { mtMode = el.dataset.m; segOn(el); mtCalc(); },
@@ -1311,6 +1404,12 @@
     'cp-del': () => confirmSheet('Delete this point?', 'Suggested fits are recalculated without it. The curve in use does not change until you use a new fit.', 'Delete', () => { Core.deleteConsPoint(cpEdit); R.curve(); }),
     'cp-use': (el) => { const x = Core.consSuggestions(curveMode).list[+el.dataset.i]; if (!x) return; Core.setConsBase(curveMode, x.model); toast('Base curve updated'); R.curve(); },
     'cp-default': () => confirmSheet('Use the default formula?', 'The base curve goes back to the default formula. Your points stay in the list.', 'Use default', () => { Core.setConsBase(curveMode, null); R.curve(); }),
+    'idle-save': () => {
+      const v = {}; for (const t of S().tanks) { v[t.id] = Core.num($('#idle-' + t.id).value); if (!(v[t.id] >= 0.2 && v[t.id] <= 10)) return toast('Enter idle use between 0.2 and 10 L/h'); }
+      const C = S().cons;
+      if (Math.abs(v.port - C.idle.port) < 1e-9 && Math.abs(v.stbd - C.idle.stbd) < 1e-9) return toast('No change');
+      Core.setConsIdle(v.port, v.stbd); toast('Idle use saved'); R.curve();
+    },
     'cp-chart': () => { cpChart = !cpChart; R.curve(); },
     'cons-review': () => consProposalSheet(),
     'cons-accept': () => { if (Core.acceptCons()) toast('New consumption curve in use'); closeSheet(); R.curve(); },
